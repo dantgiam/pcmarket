@@ -10,7 +10,8 @@ TOKEN = os.environ.get("TOKEN")
 SHOP_1 = "https://t.me/PolCenimarketMaykop"  # Основная
 SHOP_2 = "https://t.me/polcenimarketmaikop1" # Черема
 SHOP_3 = "https://t.me/polcenimarketmaikop2" # Батарейная
-SHOP_4 = "https://t.me/polcenimarketlabinsk" # Лабинск
+SHOP_4 = "https://t.me/polcenimarketlabinsk" # Тульский
+SHOP_5 = "https://t.me/polcenimarketlabinsk" # Лабинск
 
 
 
@@ -20,7 +21,8 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         [InlineKeyboardButton("📍 Майкоп, ул. Строителей 8Б", url=SHOP_1)],
         [InlineKeyboardButton("📍 Майкоп, ул. Депутатская 16Б", url=SHOP_2)],
         [InlineKeyboardButton("📍 Майкоп, ул. Батарейная", url=SHOP_3)],
-        [InlineKeyboardButton("📍 Лабинск, ул. Победы 161", url=SHOP_4)],
+        [InlineKeyboardButton("📍 Тульский, ул. Октябрьская 24В", url=SHOP_4)],
+        [InlineKeyboardButton("📍 Лабинск, ул. Победы 161", url=SHOP_5)],
     ]
 
     reply_markup = InlineKeyboardMarkup(keyboard)

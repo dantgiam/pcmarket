@@ -13,7 +13,7 @@ SHOPS = {
     },
     -1003777692701: {
         "address": "📍 Наш адрес: Майкоп, ул. Депутатская 16Б",
-        "work_time": "🕒 Мы работаем: 10:00–19:00 каждый день!",
+        "work_time": "🕒 Мы работаем: 10:00–20:00 каждый день!",
         "max_link": "📱 Мы есть в MAX: https://max.ru/join/WZ8T-qgVdTK7He20c2UAvDcawKYbedKxKFmKVZbWovo"
     },
     -1003840431977: {
