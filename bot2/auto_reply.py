@@ -16,6 +16,11 @@ SHOPS = {
         "work_time": "🕒 Мы работаем: 10:00–20:00 каждый день!",
         "max_link": "📱 Мы есть в MAX: https://max.ru/join/WZ8T-qgVdTK7He20c2UAvDcawKYbedKxKFmKVZbWovo"
     },
+    -1003974367383: {
+        "address": "📍 Наш адрес: Тульский, ул. Октябрьская 24в",
+        "work_time": "🕒 Мы работаем: 10:00–19:00 каждый день!",
+        "max_link": "📱 Мы есть в MAX: https://max.ru/join/Z_wDekAQYLNppAF0gLx00V2JfaK6S7ljY_pjp-RZH_I"
+    },
     -1003840431977: {
         "address": "📍 Наш адрес: Лабинск, ул. Победы 161 (Торговый комплекс Кубань)",
         "work_time": "🕒 Мы работаем: 09:00–18:00 каждый день!",
