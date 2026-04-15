@@ -61,6 +61,17 @@ def today_msk():
     return now_msk().date()
 
 # ---------------- Подключение к PostgreSQL ----------------
+async def get_id(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    chat_id = update.effective_chat.id
+    user_id = update.effective_user.id
+    chat_type = update.effective_chat.type
+
+    await update.message.reply_text(
+        f"🆔 Chat ID: {chat_id}\n"
+        f"👤 User ID: {user_id}\n"
+        f"💬 Chat type: {chat_type}"
+    )
+
 async def init_db(application):
     pool = await asyncpg.create_pool(DATABASE_URL)
     async with pool.acquire() as conn:
@@ -356,6 +367,7 @@ def main():
         .build()
     )
 
+    app.add_handler(CommandHandler("id", get_id))
     app.add_handler(CommandHandler("today", today_cmd))
     app.add_handler(CommandHandler("stat", stat_cmd))
     app.add_handler(CommandHandler("check", check_cmd))
