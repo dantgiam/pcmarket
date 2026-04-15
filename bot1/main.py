@@ -10,7 +10,7 @@ TOKEN = os.environ.get("TOKEN")
 SHOP_1 = "https://t.me/PolCenimarketMaykop"  # Основная
 SHOP_2 = "https://t.me/polcenimarketmaikop1" # Черема
 SHOP_3 = "https://t.me/polcenimarketmaikop2" # Батарейная
-SHOP_4 = "https://t.me/polcenimarkettulski" # Тульский
+SHOP_4 = "https://t.me/polcenimarkettulskiy" # Тульский
 SHOP_5 = "https://t.me/polcenimarketlabinsk" # Лабинск
 
 
