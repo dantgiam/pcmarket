@@ -116,6 +116,7 @@ async def handle_auto_reply(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if is_relevant(text, MAX_KEYWORDS):
         await update.message.reply_text(
             shop["max_link"],
+            parse_mode="Markdown",
             reply_to_message_id=update.message.message_id
         )
         return
