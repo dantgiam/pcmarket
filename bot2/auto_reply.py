@@ -26,6 +26,11 @@ SHOPS = {
         "work_time": "🕒 Мы работаем: 09:00–18:00 каждый день!",
         "max_link": "📱 Мы есть в MAX, [нажмите сюда](https://max.ru/join/caMNU_JQa9Q1-UlwqS1r6G9AECURkQn0ARdLGtM25wI) чтобы перейти в группу. \n 🖥 Так же есть сайт с адресами и группами других точек: https://polcenimarket.ru/"
     }
+    -1003973787679: {
+        "address": "📍 Наш адрес: Усть-Лабинск, ул. Октябрьская 105",
+        "work_time": "🕒 Мы работаем: 10:00–20:00 каждый день!",
+        "max_link": "📱 Мы есть в MAX, [нажмите сюда](https://max.ru/join/0QISzsN7l3pOozTObbzM4OR9YEmvVjaUtuXq7i-Jolo) чтобы перейти в группу. \n 🖥 Так же есть сайт с адресами и группами других точек: https://polcenimarket.ru/"
+    }
 }
 
 BLACKLIST = ["есть"]
