@@ -30,7 +30,17 @@ SHOPS = {
         "address": "📍 Наш адрес: Усть-Лабинск, ул. Октябрьская 105",
         "work_time": "🕒 Мы работаем: 10:00–20:00 каждый день!",
         "max_link": "📱 Мы есть в MAX, [нажмите сюда](https://max.ru/join/0QISzsN7l3pOozTObbzM4OR9YEmvVjaUtuXq7i-Jolo) чтобы перейти в группу. \n 🖥 Так же есть сайт с адресами и группами других точек: https://polcenimarket.ru/"
-    }
+    },
+    -1003694773601: {
+        "address": "📍 Наш адрес: Белореченск, ул. Дундича 1А",
+        "work_time": "🕒 Мы работаем: 08:00–17:00 каждый день!",
+        "max_link": "📱 Мы есть в MAX, [нажмите сюда](https://max.ru/join/XjYfUfeZb9suqYSMjFki3-xv8qUd2DOYj7AC5PbJBKk) чтобы перейти в группу. \n 🖥 Так же есть сайт с адресами и группами других точек: https://polcenimarket.ru/"
+    },
+    -1003973787679: {
+        "address": "📍 Наш адрес: Краснодар, ул. Уральская 156А",
+        "work_time": "🕒 Мы работаем: 10:00–19:00 каждый день!",
+        "max_link": "📱 Мы есть в MAX, [нажмите сюда](https://max.ru/join/NS9LjzGRRQA9YVoqNpKRMGXedgLYCWBR1ZOkGtsW8YY) чтобы перейти в группу. \n 🖥 Так же есть сайт с адресами и группами других точек: https://polcenimarket.ru/"
+    },
 }
 
 BLACKLIST = ["есть"]
