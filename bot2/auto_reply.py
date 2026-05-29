@@ -41,6 +41,16 @@ SHOPS = {
         "work_time": "🕒 Мы работаем: 10:00–19:00 каждый день!",
         "max_link": "📱 Мы есть в MAX, [нажмите сюда](https://max.ru/join/NS9LjzGRRQA9YVoqNpKRMGXedgLYCWBR1ZOkGtsW8YY) чтобы перейти в группу. \n 🖥 Так же есть сайт с адресами и группами других точек: https://polcenimarket.ru/"
     },
+    -1003992433513: {
+        "address": "📍 Наш адрес: Тимашевск, ул. Ленина 65",
+        "work_time": "🕒 Мы работаем: 10:00–19:00 каждый день!",
+        "max_link": "📱 Мы есть в MAX, [нажмите сюда](https://max.ru/join/0_Ic8E5Idr21QH6DrlJZwbV2bya1ppo0_Sc0Nq5tFAc) чтобы перейти в группу. \n 🖥 Так же есть сайт с адресами и группами других точек: https://polcenimarket.ru/"
+    },
+    -1003929344550: {
+        "address": "📍 Наш адрес: Мостовской, ул. Аэродромная 2А",
+        "work_time": "🕒 Мы работаем: 10:00–19:00 каждый день!",
+        "max_link": "📱 Мы есть в MAX, [нажмите сюда](https://max.ru/join/KEDNP1v6ISWU50sxOUfUCvJC5sxNTqLCxAilAPzW_kQ) чтобы перейти в группу. \n 🖥 Так же есть сайт с адресами и группами других точек: https://polcenimarket.ru/"
+    },
 }
 
 BLACKLIST = ["есть"]
