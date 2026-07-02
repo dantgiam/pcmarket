@@ -6,10 +6,9 @@ import os
 # -------------------- Настройки --------------------
 TOKEN = os.environ.get("TOKEN")
 
-# ссылки на чаты магазиновF
+# ссылки на чаты магазинов
 SHOP_1 = "https://t.me/PolCenimarketMaykop"  # Основная
 SHOP_2 = "https://t.me/polcenimarketmaikop1" # Черема
-SHOP_3 = "https://t.me/polcenimarketmaikop2" # Батарейная
 SHOP_4 = "https://t.me/polcenimarkettulskiy" # Тульский
 SHOP_5 = "https://t.me/polcenimarketlabinsk" # Лабинск
 
@@ -20,7 +19,6 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     keyboard = [
         [InlineKeyboardButton("📍 Майкоп, ул. Строителей 8Б", url=SHOP_1)],
         [InlineKeyboardButton("📍 Майкоп, ул. Депутатская 16Б", url=SHOP_2)],
-        [InlineKeyboardButton("📍 Майкоп, ул. Батарейная", url=SHOP_3)],
         [InlineKeyboardButton("📍 Тульский, ул. Октябрьская 24В", url=SHOP_4)],
         [InlineKeyboardButton("📍 Лабинск, ул. Победы 161", url=SHOP_5)],
     ]
@@ -42,9 +40,14 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 
-app = ApplicationBuilder().token(TOKEN).build()
+def main():
+    app = ApplicationBuilder().token(TOKEN).build()
 
-app.add_handler(CommandHandler("start", start))
-app.add_handler(MessageHandler(filters.ALL, handle_message))
+    app.add_handler(CommandHandler("start", start))
+    app.add_handler(MessageHandler(filters.ALL, handle_message))
 
-app.run_polling()
+    app.run_polling()
+
+
+if __name__ == "__main__":
+    main()
