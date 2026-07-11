@@ -60,35 +60,37 @@ def is_relevant(text: str, keywords: list) -> bool:
     return False
 
 
-async def handle_auto_reply(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def handle_auto_reply(update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool:
+    """Отвечает на вопрос про адрес / график / MAX.
+    Возвращает True, если ответил (значит сообщение — обычный вопрос клиента)."""
     if not update.message:
-        return
+        return False
 
     text = update.message.text or update.message.caption
     if not text:
-        return
+        return False
     chat_id = update.effective_chat.id
 
     if is_blacklisted_link(text):
-        return
+        return False
 
     shop = SHOPS.get(chat_id)
     if not shop:
-        return
+        return False
 
     if is_relevant(text, ADDRESS_KEYWORDS):
         await update.message.reply_text(
             shop["address"],
             reply_to_message_id=update.message.message_id
         )
-        return
+        return True
 
     if is_relevant(text, WORK_KEYWORDS):
         await update.message.reply_text(
             shop["work_time"],
             reply_to_message_id=update.message.message_id
         )
-        return
+        return True
 
     if is_relevant(text, MAX_KEYWORDS):
         await update.message.reply_text(
@@ -97,4 +99,6 @@ async def handle_auto_reply(update: Update, context: ContextTypes.DEFAULT_TYPE):
             parse_mode="Markdown",
             reply_to_message_id=update.message.message_id
         )
-        return
+        return True
+
+    return False
