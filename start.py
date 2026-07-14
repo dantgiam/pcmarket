@@ -8,8 +8,11 @@ async def run_bot(path):
 
 
 async def main():
-    bot = await run_bot("bot2/main.py")
-    await bot.wait()
+    bots = await asyncio.gather(
+        run_bot("bot2/main.py"),
+        run_bot("bot3/main.py"),
+    )
+    await asyncio.gather(*(bot.wait() for bot in bots))
 
 
 asyncio.run(main())
