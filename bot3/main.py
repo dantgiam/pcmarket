@@ -102,6 +102,7 @@ async def relay_loop() -> None:
         print("⚠️ MAX_BOT_TOKEN или TOKENOTVET не заданы — bot3 не запущен")
         return
 
+    print("🚀 bot3 запущен, начинаю polling MAX /updates...")
     marker = None
 
     async with aiohttp.ClientSession() as session, Bot(TG_BOT_TOKEN) as bot:
@@ -109,15 +110,19 @@ async def relay_loop() -> None:
             try:
                 data = await max_client.get_updates(session, MAX_BOT_TOKEN, marker)
             except Exception as e:
-                print(f"⚠️ Ошибка получения обновлений MAX: {e}")
+                print(f"⚠️ Ошибка получения обновлений MAX (возможно, неверный MAX_BOT_TOKEN): {e}")
                 await asyncio.sleep(5)
                 continue
 
             marker = data.get("marker", marker)
+            updates = data.get("updates", [])
+            if updates:
+                print(f"📩 Получено обновлений: {len(updates)}")
 
-            for update in data.get("updates", []):
+            for update in updates:
                 message = max_client.extract_message(update)
                 if not message:
+                    print(f"🔎 Пропущено (не message_created или неожиданный формат): {update}")
                     continue
 
                 chat_id = message.get("recipient", {}).get("chat_id")
@@ -128,6 +133,7 @@ async def relay_loop() -> None:
 
                 try:
                     await _handle_message(session, bot, shop, message, chat_id)
+                    print(f"✅ Сообщение из «{shop['name']}» обработано")
                 except Exception as e:
                     print(f"⚠️ Ошибка обработки сообщения ({shop['name']}): {e}")
 
