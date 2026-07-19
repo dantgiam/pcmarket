@@ -1,18 +1,31 @@
-# ---------------- Релей: MAX -> Telegram (всё) + VK (фото от админов) ----------------
+# ---------------- Релей: MAX <-> Telegram + VK (фото от админов) ----------------
+# Плюс автоответчик и антиспам-модерация внутри самого MAX (переиспользуют
+# логику и тексты bot2 — см. sys.path ниже).
 
 import asyncio
 import os
+import sys
 import time
 
 import aiohttp
 from telegram import Bot, InputMediaPhoto
 
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "bot2"))
+
 import max_client
 import vk_client
 from relay_shops import RELAY_SHOPS
+from auto_reply import ADDRESS_KEYWORDS, WORK_KEYWORDS, is_relevant, is_blacklisted_link
+from shops import SHOPS
+from moderation import check_spam
 
 MAX_BOT_TOKEN = os.environ.get("MAX_BOT_TOKEN")
 TG_BOT_TOKEN = os.environ.get("TOKENOTVET")
+
+# id самого MAX-бота — определяется при старте, нужен для защиты от
+# зацикливания (TG -> MAX -> TG), т.к. MAX отдаёт в /updates и его же
+# собственные сообщения.
+MAX_BOT_USER_ID = None
 
 ADMIN_CACHE_TTL = 30 * 60  # секунд
 _admin_cache: dict[int, tuple[float, set]] = {}
@@ -41,6 +54,67 @@ async def _get_admin_ids(session: aiohttp.ClientSession, chat_id: int) -> set:
     return admin_ids
 
 
+def _sender_name(sender: dict) -> str:
+    name = " ".join(filter(None, [sender.get("first_name"), sender.get("last_name")])).strip()
+    return name or sender.get("username") or "MAX-пользователь"
+
+
+def _format_relayed_text(text: str, author_name: str, is_admin: bool, source_label: str) -> str:
+    """Админов не подписываем, остальных — "MAX, Имя: текст"."""
+    if is_admin:
+        return text
+    prefix = f"{source_label}, {author_name}"
+    return f"{prefix}: {text}" if text else prefix
+
+
+def _max_auto_reply_text(text: str, tg_chat_id: int) -> str | None:
+    """Ответ на вопрос об адресе/графике — прямо в MAX. Переиспользует ключевые
+    слова и тексты магазинов из bot2 (вопрос "есть ли вы в MAX" здесь не имеет
+    смысла — пользователь и так пишет из MAX, поэтому не отвечаем на него)."""
+    if not text or is_blacklisted_link(text):
+        return None
+
+    shop_content = SHOPS.get(tg_chat_id)
+    if not shop_content:
+        return None
+
+    if is_relevant(text, ADDRESS_KEYWORDS):
+        return shop_content["address"]
+    if is_relevant(text, WORK_KEYWORDS):
+        return shop_content["work_time"]
+
+    return None
+
+
+async def _handle_max_moderation(
+    session: aiohttp.ClientSession,
+    chat_id: int,
+    message: dict,
+    sender_id,
+    text: str,
+) -> bool:
+    """Возвращает True, если сообщение — спам (удалено, автор забанен)."""
+    action = await check_spam(text)
+    if action != "BAN":
+        return False
+
+    message_id = message.get("body", {}).get("mid")
+    if message_id:
+        try:
+            await max_client.delete_message(session, MAX_BOT_TOKEN, message_id)
+        except Exception as e:
+            print(f"⚠️ Не удалось удалить спам-сообщение в MAX-чате {chat_id}: {e}")
+
+    if sender_id is not None:
+        try:
+            await max_client.ban_member(session, MAX_BOT_TOKEN, chat_id, sender_id)
+        except Exception as e:
+            print(f"⚠️ Не удалось забанить {sender_id} в MAX-чате {chat_id}: {e}")
+
+    print(f"🚫 Забанен в MAX-чате {chat_id}: user_id={sender_id}, текст: {text}")
+    return True
+
+
 async def _relay_to_telegram(bot: Bot, tg_chat_id: int, text: str, photos: list[bytes]) -> None:
     if not photos:
         if text:
@@ -66,28 +140,41 @@ async def _handle_message(
     if not text and not photo_urls:
         return
 
+    sender = message.get("sender") or {}
+    sender_id = sender.get("user_id")
+
+    # Не реагируем на собственные сообщения бота (иначе TG -> MAX -> TG зациклится)
+    if sender_id is not None and sender_id == MAX_BOT_USER_ID:
+        return
+
+    admin_ids = await _get_admin_ids(session, chat_id)
+    is_admin = sender_id in admin_ids if sender_id is not None else False
+
+    reply_text = _max_auto_reply_text(text, shop["tg_chat_id"])
+    if reply_text:
+        try:
+            await max_client.send_message(session, MAX_BOT_TOKEN, chat_id, reply_text)
+        except Exception as e:
+            print(f"⚠️ Ошибка автоответа в MAX ({shop['name']}): {e}")
+
+    if not is_admin and not reply_text and text:
+        banned = await _handle_max_moderation(session, chat_id, message, sender_id, text)
+        if banned:
+            return
+
     photos = [
         await max_client.download_attachment(session, MAX_BOT_TOKEN, url)
         for url in photo_urls
     ]
 
+    relay_text = _format_relayed_text(text, _sender_name(sender), is_admin, "MAX")
+
     try:
-        await _relay_to_telegram(bot, shop["tg_chat_id"], text, photos)
+        await _relay_to_telegram(bot, shop["tg_chat_id"], relay_text, photos)
     except Exception as e:
         print(f"⚠️ Ошибка отправки в Telegram ({shop['name']}): {e}")
 
-    if not photos:
-        return
-
-    sender = message.get("sender", {}) or {}
-    sender_id = sender.get("user_id") or sender.get("userId")
-    if sender_id is None:
-        print(f"⚠️ Не удалось определить отправителя для VK-релея ({shop['name']}): {message}")
-        return
-
-    admin_ids = await _get_admin_ids(session, chat_id)
-    if sender_id not in admin_ids:
-        print(f"ℹ️ Отправитель {sender_id} не админ чата «{shop['name']}» (админы: {admin_ids}) — в VK не постим")
+    if not photos or not is_admin:
         return
 
     vk_token = os.environ.get(shop["vk_token_env"])
@@ -102,6 +189,8 @@ async def _handle_message(
 
 
 async def relay_loop() -> None:
+    global MAX_BOT_USER_ID
+
     if not MAX_BOT_TOKEN or not TG_BOT_TOKEN:
         print("⚠️ MAX_BOT_TOKEN или TOKENOTVET не заданы — bot3 не запущен")
         return
@@ -110,6 +199,13 @@ async def relay_loop() -> None:
     marker = None
 
     async with aiohttp.ClientSession() as session, Bot(TG_BOT_TOKEN) as bot:
+        try:
+            me = await max_client.get_me(session, MAX_BOT_TOKEN)
+            MAX_BOT_USER_ID = me.get("user_id")
+            print(f"🤖 MAX-бот: {me.get('first_name')} (user_id={MAX_BOT_USER_ID})")
+        except Exception as e:
+            print(f"⚠️ Не удалось определить свой user_id в MAX (GET /me): {e}")
+
         while True:
             try:
                 data = await max_client.get_updates(session, MAX_BOT_TOKEN, marker)

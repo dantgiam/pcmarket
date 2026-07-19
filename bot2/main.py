@@ -1,4 +1,7 @@
 import os
+import sys
+
+import aiohttp
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.constants import ChatMemberStatus
 from telegram.ext import (
@@ -9,7 +12,15 @@ from telegram.ext import (
 from auto_reply import handle_auto_reply
 from moderation import check_spam
 
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "bot3"))
+import max_client
+from relay_shops import RELAY_SHOPS
+
+# Обратная карта: tg_chat_id -> max_chat_id, для релея TG -> MAX
+MAX_CHAT_MAP = {shop["tg_chat_id"]: max_chat_id for max_chat_id, shop in RELAY_SHOPS.items()}
+
 TOKEN = os.environ.get("TOKENOTVET")
+MAX_BOT_TOKEN = os.environ.get("MAX_BOT_TOKEN")
 
 # Чат, куда падают логи банов (с кнопкой «Разбанить»). ID через env.
 _log = os.environ.get("LOG_CHAT_ID")
@@ -78,15 +89,17 @@ async def send_ban_log(context, chat, user, text: str):
         pass
 
 
-async def moderate(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Проверяет сообщение на спам через DeepSeek и банит нарушителя."""
+async def moderate(update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool:
+    """Проверяет сообщение на спам через DeepSeek и банит нарушителя.
+    Возвращает True, если сообщение расценено как спам (значит, его не нужно
+    релеить в MAX, даже если сам бан по какой-то причине не удался)."""
     text = update.message.text or update.message.caption
     if not text:
-        return
+        return False
 
     action = await check_spam(text)
     if action != "BAN":
-        return
+        return False
 
     user = update.effective_user
     chat = update.effective_chat
@@ -105,6 +118,8 @@ async def moderate(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if banned:
         await send_ban_log(context, chat, user, text)
+
+    return True
 
 
 async def unban_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -140,20 +155,57 @@ async def get_id(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(f"🆔 Chat ID: {update.effective_chat.id}")
 
 
+async def relay_to_max(update: Update, context: ContextTypes.DEFAULT_TYPE, is_admin: bool) -> None:
+    """Пересылает сообщение из TG-группы в связанный MAX-чат (bot3/relay_shops.py).
+    Админов не подписываем, остальных — "TG, Имя: текст"."""
+    if not MAX_BOT_TOKEN:
+        return
+
+    max_chat_id = MAX_CHAT_MAP.get(update.effective_chat.id)
+    if not max_chat_id:
+        return
+
+    text = update.message.text or update.message.caption or ""
+    author_name = update.effective_user.full_name if update.effective_user else "TG-пользователь"
+    if is_admin:
+        relay_text = text
+    else:
+        prefix = f"TG, {author_name}"
+        relay_text = f"{prefix}: {text}" if text else prefix
+
+    try:
+        async with aiohttp.ClientSession() as session:
+            attachments = None
+            if update.message.photo:
+                photo = update.message.photo[-1]
+                file = await context.bot.get_file(photo.file_id)
+                photo_bytes = bytes(await file.download_as_bytearray())
+                token = await max_client.upload_image(session, MAX_BOT_TOKEN, photo_bytes)
+                attachments = [{"type": "image", "payload": {"token": token}}]
+
+            if relay_text or attachments:
+                await max_client.send_message(session, MAX_BOT_TOKEN, max_chat_id, relay_text, attachments)
+    except Exception as e:
+        print(f"⚠️ Ошибка релея в MAX: {e}")
+
+
 async def handle_group_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # В самом чате-логов ничего не модерируем
     if LOG_CHAT_ID and update.effective_chat.id == LOG_CHAT_ID:
         return
 
     # Обычный вопрос клиента (адрес / график / MAX) — отвечаем и не баним
-    if await handle_auto_reply(update, context):
-        return
+    handled_by_auto_reply = await handle_auto_reply(update, context)
 
-    # Админов и доверенных не модерируем
-    if await is_exempt(update, context):
-        return
+    # Админов и доверенных не модерируем, их сообщения в MAX идут без подписи
+    exempt = await is_exempt(update, context)
 
-    await moderate(update, context)
+    is_spam = False
+    if not handled_by_auto_reply and not exempt:
+        is_spam = await moderate(update, context)
+
+    if not is_spam:
+        await relay_to_max(update, context, is_admin=exempt)
 
 
 def main():
