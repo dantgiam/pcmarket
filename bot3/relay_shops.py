@@ -65,4 +65,12 @@ RELAY_SHOPS = {
         "vk_group_id": 0,
         "vk_token_env": "VK_TOKEN_MOSTOVSKOY",
     },
+    # Новый магазин. TG: t.me/polcenimarkethanskaya (нужен реальный tg_chat_id).
+    # VK: переиспользуем группу/токен, ранее заведённые под Строителей 8Б.
+    9: {
+        "name": "Ханская",
+        "tg_chat_id": 0,
+        "vk_group_id": 0,
+        "vk_token_env": "VK_TOKEN_MAYKOP_STROITELEY",
+    },
 }
