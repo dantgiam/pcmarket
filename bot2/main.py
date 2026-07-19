@@ -219,8 +219,12 @@ async def handle_group_message(update: Update, context: ContextTypes.DEFAULT_TYP
     # Админов и доверенных не модерируем, их сообщения в MAX идут без подписи
     exempt = await is_exempt(update, context)
 
+    # Вопрос про адрес/график уже отвечен на месте — дальше (в MAX) не пересылаем
+    if handled_by_auto_reply:
+        return
+
     is_spam = False
-    if not handled_by_auto_reply and not exempt:
+    if not exempt:
         is_spam = await moderate(update, context)
 
     if not is_spam:

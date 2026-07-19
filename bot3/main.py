@@ -166,11 +166,16 @@ async def _handle_message(
     reply_text = _max_auto_reply_text(text, shop["tg_chat_id"])
     if reply_text:
         try:
-            await max_client.send_message(session, MAX_BOT_TOKEN, chat_id, reply_text)
+            await max_client.send_message(
+                session, MAX_BOT_TOKEN, chat_id, reply_text,
+                reply_to_mid=message.get("body", {}).get("mid"),
+            )
         except Exception as e:
             print(f"⚠️ Ошибка автоответа в MAX ({shop['name']}): {e}")
+        # Вопрос уже отвечен на месте — дальше (в TG/VK) не пересылаем
+        return
 
-    if not is_admin and not reply_text and text:
+    if not is_admin and text:
         banned = await _handle_max_moderation(session, chat_id, message, sender_id, text)
         if banned:
             return
