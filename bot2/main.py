@@ -180,6 +180,7 @@ async def relay_to_max(update: Update, context: ContextTypes.DEFAULT_TYPE, is_ad
         found = relay_state.find_max_by_tg_message(
             update.effective_chat.id, update.message.reply_to_message.message_id
         )
+        print(f"🔎 TG reply на message_id={update.message.reply_to_message.message_id}, найдено в relay_state: {found}")
         if found:
             _, reply_to_mid = found
 
@@ -198,6 +199,7 @@ async def relay_to_max(update: Update, context: ContextTypes.DEFAULT_TYPE, is_ad
                     session, MAX_BOT_TOKEN, max_chat_id, relay_text, attachments,
                     reply_to_mid=reply_to_mid,
                 )
+                print(f"💾 Сохраняю маппинг: max_mid={max_mid} <-> tg_message_id={update.message.message_id}")
                 if max_mid:
                     relay_state.save_mapping(
                         max_mid, max_chat_id, update.message.message_id, update.effective_chat.id

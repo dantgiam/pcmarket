@@ -185,9 +185,12 @@ async def _handle_message(
     # Если это ответ на ранее пересланное из TG сообщение — отвечаем в TG тем же тредом
     reply_to_tg_message_id = None
     link = message.get("link") or {}
+    if link:
+        print(f"🔗 Сообщение содержит link: {link}")
     if link.get("type") == "reply":
-        replied_mid = link.get("message", {}).get("mid")
+        replied_mid = link.get("message", {}).get("mid") or link.get("mid")
         found = relay_state.find_tg_by_max_mid(replied_mid)
+        print(f"🔎 Reply на mid={replied_mid}, найдено в relay_state: {found}")
         if found:
             _, reply_to_tg_message_id = found
 
@@ -197,6 +200,7 @@ async def _handle_message(
             reply_to_message_id=reply_to_tg_message_id,
         )
         max_mid = message.get("body", {}).get("mid")
+        print(f"💾 Сохраняю маппинг: max_mid={max_mid} <-> tg_message_id={tg_message_id}")
         if tg_message_id and max_mid:
             relay_state.save_mapping(max_mid, chat_id, tg_message_id, shop["tg_chat_id"])
     except Exception as e:

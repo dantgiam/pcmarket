@@ -67,7 +67,10 @@ async def send_message(
         resp.raise_for_status()
         data = await resp.json()
 
-    return data.get("body", {}).get("mid")
+    mid = data.get("body", {}).get("mid") or data.get("message", {}).get("body", {}).get("mid")
+    if not mid:
+        print(f"⚠️ Не удалось извлечь mid из ответа на отправку сообщения: {data}")
+    return mid
 
 
 async def upload_image(session: aiohttp.ClientSession, token: str, image_bytes: bytes) -> str:
