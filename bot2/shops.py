@@ -48,4 +48,9 @@ SHOPS = {
         "work_time": "🕒 Мы работаем: 10:00–19:00 каждый день!",
         "max_link": "📱 Мы есть в MAX, [нажмите сюда](https://max.ru/join/KEDNP1v6ISWU50sxOUfUCvJC5sxNTqLCxAilAPzW_kQ) чтобы перейти в группу. \n 🖥 Так же есть сайт с адресами и группами других точек: https://polcenimarket.ru/"
     },
+    -1003934880016: {
+        "address": "📍 Наш адрес: Ханская, ул. Верещагина 2Л",
+        "work_time": "🕒 Мы работаем: 09:00–19:00 каждый день!",
+        "max_link": "📱 Мы есть в MAX, [нажмите сюда](https://max.ru/join/vixPGFHUH9vru8ZeXx2wiM4_EflQ1cKVmL_bTOF3pUk) чтобы перейти в группу. \n 🖥 Так же есть сайт с адресами и группами других точек: https://polcenimarket.ru/"
+    },
 }
