@@ -70,7 +70,7 @@ RELAY_SHOPS = {
     -76576015528624: {
         "name": "Ханская",
         "tg_chat_id": -1003934880016,
-        "vk_group_id": 0,
+        "vk_group_id": 240271459,
         "vk_token_env": "VK_TOKEN_MAYKOP_STROITELEY",
     },
 }
