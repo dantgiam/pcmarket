@@ -14,6 +14,7 @@ from moderation import check_spam
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "bot3"))
 import max_client
+import relay_state
 from relay_shops import RELAY_SHOPS
 
 # Обратная карта: tg_chat_id -> max_chat_id, для релея TG -> MAX
@@ -173,6 +174,15 @@ async def relay_to_max(update: Update, context: ContextTypes.DEFAULT_TYPE, is_ad
         prefix = f"TG, {author_name}"
         relay_text = f"{prefix}: {text}" if text else prefix
 
+    # Если это ответ на ранее пересланное из MAX сообщение — отвечаем в MAX тем же тредом
+    reply_to_mid = None
+    if update.message.reply_to_message:
+        found = relay_state.find_max_by_tg_message(
+            update.effective_chat.id, update.message.reply_to_message.message_id
+        )
+        if found:
+            _, reply_to_mid = found
+
     try:
         async with aiohttp.ClientSession() as session:
             attachments = None
@@ -184,7 +194,14 @@ async def relay_to_max(update: Update, context: ContextTypes.DEFAULT_TYPE, is_ad
                 attachments = [{"type": "image", "payload": {"token": token}}]
 
             if relay_text or attachments:
-                await max_client.send_message(session, MAX_BOT_TOKEN, max_chat_id, relay_text, attachments)
+                max_mid = await max_client.send_message(
+                    session, MAX_BOT_TOKEN, max_chat_id, relay_text, attachments,
+                    reply_to_mid=reply_to_mid,
+                )
+                if max_mid:
+                    relay_state.save_mapping(
+                        max_mid, max_chat_id, update.message.message_id, update.effective_chat.id
+                    )
     except Exception as e:
         print(f"⚠️ Ошибка релея в MAX: {e}")
 

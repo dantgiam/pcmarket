@@ -14,6 +14,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "bot2"))
 
 import max_client
 import vk_client
+import relay_state
 from relay_shops import RELAY_SHOPS
 from auto_reply import ADDRESS_KEYWORDS, WORK_KEYWORDS, is_relevant, is_blacklisted_link
 from shops import SHOPS
@@ -115,18 +116,30 @@ async def _handle_max_moderation(
     return True
 
 
-async def _relay_to_telegram(bot: Bot, tg_chat_id: int, text: str, photos: list[bytes]) -> None:
+async def _relay_to_telegram(
+    bot: Bot,
+    tg_chat_id: int,
+    text: str,
+    photos: list[bytes],
+    reply_to_message_id: int | None = None,
+) -> int | None:
+    """Отправляет сообщение, возвращает message_id (для reply-threading)."""
     if not photos:
         if text:
-            await bot.send_message(tg_chat_id, text)
-        return
+            msg = await bot.send_message(tg_chat_id, text, reply_to_message_id=reply_to_message_id)
+            return msg.message_id
+        return None
 
     if len(photos) == 1:
-        await bot.send_photo(tg_chat_id, photo=photos[0], caption=text or None)
-        return
+        msg = await bot.send_photo(
+            tg_chat_id, photo=photos[0], caption=text or None,
+            reply_to_message_id=reply_to_message_id,
+        )
+        return msg.message_id
 
     media = [InputMediaPhoto(p, caption=text if i == 0 else None) for i, p in enumerate(photos)]
-    await bot.send_media_group(tg_chat_id, media)
+    messages = await bot.send_media_group(tg_chat_id, media, reply_to_message_id=reply_to_message_id)
+    return messages[0].message_id if messages else None
 
 
 async def _handle_message(
@@ -169,8 +182,23 @@ async def _handle_message(
 
     relay_text = _format_relayed_text(text, _sender_name(sender), is_admin, "MAX")
 
+    # Если это ответ на ранее пересланное из TG сообщение — отвечаем в TG тем же тредом
+    reply_to_tg_message_id = None
+    link = message.get("link") or {}
+    if link.get("type") == "reply":
+        replied_mid = link.get("message", {}).get("mid")
+        found = relay_state.find_tg_by_max_mid(replied_mid)
+        if found:
+            _, reply_to_tg_message_id = found
+
     try:
-        await _relay_to_telegram(bot, shop["tg_chat_id"], relay_text, photos)
+        tg_message_id = await _relay_to_telegram(
+            bot, shop["tg_chat_id"], relay_text, photos,
+            reply_to_message_id=reply_to_tg_message_id,
+        )
+        max_mid = message.get("body", {}).get("mid")
+        if tg_message_id and max_mid:
+            relay_state.save_mapping(max_mid, chat_id, tg_message_id, shop["tg_chat_id"])
     except Exception as e:
         print(f"⚠️ Ошибка отправки в Telegram ({shop['name']}): {e}")
 

@@ -49,10 +49,14 @@ async def send_message(
     chat_id: int,
     text: str,
     attachments: list | None = None,
-) -> None:
+    reply_to_mid: str | None = None,
+) -> str | None:
+    """Отправляет сообщение, возвращает mid отправленного сообщения (для reply-threading)."""
     body = {"text": text or ""}
     if attachments:
         body["attachments"] = attachments
+    if reply_to_mid:
+        body["link"] = {"type": "reply", "mid": reply_to_mid}
 
     async with session.post(
         f"{API_URL}/messages",
@@ -61,6 +65,9 @@ async def send_message(
         json=body,
     ) as resp:
         resp.raise_for_status()
+        data = await resp.json()
+
+    return data.get("body", {}).get("mid")
 
 
 async def upload_image(session: aiohttp.ClientSession, token: str, image_bytes: bytes) -> str:
