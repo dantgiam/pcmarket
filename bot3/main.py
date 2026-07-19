@@ -79,16 +79,20 @@ async def _handle_message(
     if not photos:
         return
 
-    sender_id = message.get("sender", {}).get("userId")
+    sender = message.get("sender", {}) or {}
+    sender_id = sender.get("user_id") or sender.get("userId")
     if sender_id is None:
+        print(f"⚠️ Не удалось определить отправителя для VK-релея ({shop['name']}): {message}")
         return
 
     admin_ids = await _get_admin_ids(session, chat_id)
     if sender_id not in admin_ids:
+        print(f"ℹ️ Отправитель {sender_id} не админ чата «{shop['name']}» (админы: {admin_ids}) — в VK не постим")
         return
 
     vk_token = os.environ.get(shop["vk_token_env"])
     if not vk_token or not shop["vk_group_id"]:
+        print(f"⚠️ Не настроен VK для «{shop['name']}» (токен есть: {bool(vk_token)}, group_id: {shop['vk_group_id']})")
         return
 
     try:

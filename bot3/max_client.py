@@ -46,11 +46,14 @@ async def get_admin_ids(session: aiohttp.ClientSession, token: str, chat_id: int
         ) as resp:
             resp.raise_for_status()
             data = await resp.json()
-    except Exception:
+    except Exception as e:
+        print(f"⚠️ Не удалось получить список админов чата {chat_id}: {e}")
         return set()
 
+    # MAX API не всегда единообразен в регистре полей (userId/user_id) —
+    # подстраховываемся обоими вариантами.
     return {
-        m["userId"]
+        m.get("userId") or m.get("user_id")
         for m in data.get("members", [])
-        if m.get("isAdmin") or m.get("isOwner")
+        if m.get("isAdmin") or m.get("is_admin") or m.get("isOwner") or m.get("is_owner")
     }
