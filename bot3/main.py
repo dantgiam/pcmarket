@@ -4,6 +4,7 @@
 
 import asyncio
 import os
+import re
 import sys
 import time
 
@@ -58,6 +59,11 @@ async def _get_admin_ids(session: aiohttp.ClientSession, chat_id: int) -> set:
 def _sender_name(sender: dict) -> str:
     name = " ".join(filter(None, [sender.get("first_name"), sender.get("last_name")])).strip()
     return name or sender.get("username") or "MAX-пользователь"
+
+
+def _has_hashtag(text: str) -> bool:
+    """Объявления с хэштегами (#товар цена) — каталог, не спам, не модерируем."""
+    return bool(re.search(r"#\w", text))
 
 
 def _format_relayed_text(text: str, author_name: str, is_admin: bool, source_label: str) -> str:
@@ -175,7 +181,7 @@ async def _handle_message(
         # Вопрос уже отвечен на месте — дальше (в TG/VK) не пересылаем
         return
 
-    if not is_admin and text:
+    if not is_admin and text and not _has_hashtag(text):
         banned = await _handle_max_moderation(session, chat_id, message, sender_id, text)
         if banned:
             return
