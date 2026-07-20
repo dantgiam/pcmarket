@@ -53,4 +53,14 @@ SHOPS = {
         "work_time": "🕒 Мы работаем: 09:00–19:00 каждый день!",
         "max_link": "📱 Мы есть в MAX, [нажмите сюда](https://max.ru/join/vixPGFHUH9vru8ZeXx2wiM4_EflQ1cKVmL_bTOF3pUk) чтобы перейти в группу. \n 🖥 Так же есть сайт с адресами и группами других точек: https://polcenimarket.ru/"
     },
+    -1004409128265: {
+        "address": "📍 Наш адрес: Краснодар, ул. Калинина 327",
+        "work_time": "🕒 Мы работаем: 10:00–21:00 каждый день!",
+        "max_link": "📱 Мы есть в MAX, [нажмите сюда](https://max.ru/join/G2E9OErnlhV7TkNlf02X0qNfZf9-CoCjw_20r2zn6fo) чтобы перейти в группу. \n 🖥 Так же есть сайт с адресами и группами других точек: https://polcenimarket.ru/"
+    },
+    -1003893903704: {
+        "address": "📍 Наш адрес: Великовечное, ул. Восточная 33",
+        "work_time": "🕒 Мы работаем: 09:00–18:00 каждый день!",
+        "max_link": "📱 Мы есть в MAX, [нажмите сюда](https://max.ru/join/mNnm6zV6jPYFCPRF7MGnF-x0SzoN3vdM9-yQyqXgMDY) чтобы перейти в группу. \n 🖥 Так же есть сайт с адресами и группами других точек: https://polcenimarket.ru/"
+    },
 }
