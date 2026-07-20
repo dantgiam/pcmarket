@@ -1,5 +1,4 @@
 import os
-import re
 import sys
 
 import aiohttp
@@ -39,11 +38,6 @@ def user_label(user) -> str:
         parts.append(f"@{user.username}")
     parts.append(f"[id {user.id}]")
     return " ".join(parts)
-
-
-def _has_hashtag(text: str) -> bool:
-    """Объявления с хэштегами (#товар цена) — каталог, не спам, не модерируем."""
-    return bool(text) and bool(re.search(r"#\w", text))
 
 
 async def is_exempt(update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool:
@@ -229,11 +223,8 @@ async def handle_group_message(update: Update, context: ContextTypes.DEFAULT_TYP
     if handled_by_auto_reply:
         return
 
-    text = update.message.text or update.message.caption
-
-    # Сообщения с фото — товар на витрину, не модерируем (как и с хэштегами)
     is_spam = False
-    if not exempt and not _has_hashtag(text) and not update.message.photo:
+    if not exempt:
         is_spam = await moderate(update, context)
 
     if not is_spam:
