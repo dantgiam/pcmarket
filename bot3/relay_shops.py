@@ -14,7 +14,7 @@ RELAY_SHOPS = {
         "vk_group_id": 0,
         "vk_token_env": "VK_TOKEN_MAYKOP_STROITELEY",
     },
-    1: {
+    -72381488468530: {
         "name": "Майкоп, ул. Депутатская 16Б",
         "tg_chat_id": -1003777692701,
         "vk_group_id": 0,
