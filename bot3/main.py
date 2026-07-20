@@ -181,7 +181,8 @@ async def _handle_message(
         # Вопрос уже отвечен на месте — дальше (в TG/VK) не пересылаем
         return
 
-    if not is_admin and text and not _has_hashtag(text):
+    # Сообщения с фото — товар на витрину, не модерируем (как и с хэштегами)
+    if not is_admin and text and not _has_hashtag(text) and not photo_urls:
         banned = await _handle_max_moderation(session, chat_id, message, sender_id, text)
         if banned:
             return

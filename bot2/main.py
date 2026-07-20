@@ -231,8 +231,9 @@ async def handle_group_message(update: Update, context: ContextTypes.DEFAULT_TYP
 
     text = update.message.text or update.message.caption
 
+    # Сообщения с фото — товар на витрину, не модерируем (как и с хэштегами)
     is_spam = False
-    if not exempt and not _has_hashtag(text):
+    if not exempt and not _has_hashtag(text) and not update.message.photo:
         is_spam = await moderate(update, context)
 
     if not is_spam:
