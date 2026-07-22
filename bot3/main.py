@@ -46,14 +46,15 @@ def _extract_text_and_media(message: dict) -> tuple[str, list[str], list[str]]:
         text = text or fwd_body.get("text") or ""
         attachments = attachments or fwd_body.get("attachments", [])
 
-    def urls(att_type: str) -> list[str]:
+    def urls(*att_types: str) -> list[str]:
         return [
             att["payload"]["url"]
             for att in attachments
-            if att.get("type") == att_type and att.get("payload", {}).get("url")
+            if att.get("type") in att_types and att.get("payload", {}).get("url")
         ]
 
-    return text, urls("image"), urls("video")
+    # MAX не единообразен: фото встречаются то как "image", то как "photo".
+    return text, urls("image", "photo"), urls("video")
 
 
 async def _get_admin_ids(session: aiohttp.ClientSession, chat_id: int) -> set:
