@@ -8,7 +8,7 @@ import sys
 import time
 
 import aiohttp
-from telegram import Bot, InputMediaPhoto
+from telegram import Bot, InputMediaPhoto, InputMediaVideo
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "bot2"))
 
@@ -32,7 +32,8 @@ ADMIN_CACHE_TTL = 30 * 60  # секунд
 _admin_cache: dict[int, tuple[float, set]] = {}
 
 
-def _extract_text_and_photo_urls(message: dict) -> tuple[str, list[str]]:
+def _extract_text_and_media(message: dict) -> tuple[str, list[str], list[str]]:
+    """Возвращает (text, photo_urls, video_urls)."""
     body = message.get("body", {})
     text = body.get("text") or ""
     attachments = body.get("attachments", [])
@@ -45,13 +46,14 @@ def _extract_text_and_photo_urls(message: dict) -> tuple[str, list[str]]:
         text = text or fwd_body.get("text") or ""
         attachments = attachments or fwd_body.get("attachments", [])
 
-    photo_urls = [
-        att["payload"]["url"]
-        for att in attachments
-        if att.get("type") == "image" and att.get("payload", {}).get("url")
-    ]
+    def urls(att_type: str) -> list[str]:
+        return [
+            att["payload"]["url"]
+            for att in attachments
+            if att.get("type") == att_type and att.get("payload", {}).get("url")
+        ]
 
-    return text, photo_urls
+    return text, urls("image"), urls("video")
 
 
 async def _get_admin_ids(session: aiohttp.ClientSession, chat_id: int) -> set:
@@ -133,27 +135,41 @@ async def _relay_to_telegram(
     tg_chat_id: int,
     text: str,
     photos: list[bytes],
+    videos: list[bytes] | None = None,
     reply_to_message_id: int | None = None,
 ) -> int | None:
     """Отправляет сообщение, возвращает message_id (для reply-threading)."""
-    if not photos:
+    videos = videos or []
+    combined = [("photo", p) for p in photos] + [("video", v) for v in videos]
+
+    if not combined:
         if text:
             msg = await bot.send_message(tg_chat_id, text, reply_to_message_id=reply_to_message_id)
             return msg.message_id
         return None
 
-    # Длинный текст не влезает в подпись к фото — шлём фото без подписи,
+    # Длинный текст не влезает в подпись к фото/видео — шлём медиа без подписи,
     # а текст отдельным сообщением следом (тем же тредом).
     fits_caption = len(text) <= TG_CAPTION_LIMIT
     caption = text if fits_caption else None
 
-    if len(photos) == 1:
-        msg = await bot.send_photo(
-            tg_chat_id, photo=photos[0], caption=caption or None,
-            reply_to_message_id=reply_to_message_id,
-        )
+    if len(combined) == 1:
+        kind, data = combined[0]
+        if kind == "photo":
+            msg = await bot.send_photo(
+                tg_chat_id, photo=data, caption=caption or None,
+                reply_to_message_id=reply_to_message_id,
+            )
+        else:
+            msg = await bot.send_video(
+                tg_chat_id, video=data, caption=caption or None,
+                reply_to_message_id=reply_to_message_id,
+            )
     else:
-        media = [InputMediaPhoto(p, caption=caption if i == 0 else None) for i, p in enumerate(photos)]
+        media = [
+            (InputMediaPhoto if kind == "photo" else InputMediaVideo)(data, caption=caption if i == 0 else None)
+            for i, (kind, data) in enumerate(combined)
+        ]
         messages = await bot.send_media_group(tg_chat_id, media, reply_to_message_id=reply_to_message_id)
         msg = messages[0] if messages else None
 
@@ -173,8 +189,8 @@ async def _handle_message(
     message: dict,
     chat_id: int,
 ) -> None:
-    text, photo_urls = _extract_text_and_photo_urls(message)
-    if not text and not photo_urls:
+    text, photo_urls, video_urls = _extract_text_and_media(message)
+    if not text and not photo_urls and not video_urls:
         link = message.get("link") or {}
         if link:
             print(f"🔗 Пустое сообщение с link (возможно, форвард нераспознанного формата): {message}")
@@ -211,6 +227,10 @@ async def _handle_message(
         await max_client.download_attachment(session, MAX_BOT_TOKEN, url)
         for url in photo_urls
     ]
+    videos = [
+        await max_client.download_attachment(session, MAX_BOT_TOKEN, url)
+        for url in video_urls
+    ]
 
     relay_text = _format_relayed_text(text, _sender_name(sender), is_admin, "MAX")
 
@@ -228,7 +248,7 @@ async def _handle_message(
 
     try:
         tg_message_id = await _relay_to_telegram(
-            bot, shop["tg_chat_id"], relay_text, photos,
+            bot, shop["tg_chat_id"], relay_text, photos, videos,
             reply_to_message_id=reply_to_tg_message_id,
         )
         max_mid = message.get("body", {}).get("mid")
