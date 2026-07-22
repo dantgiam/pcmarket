@@ -98,3 +98,47 @@ async def check_spam(text: str) -> str:
                     return "OK"
     except Exception:
         return "OK"
+
+
+async def confirm_intent(text: str, question: str) -> bool:
+    """Уточняющий вопрос к DeepSeek для защиты от ложных срабатываний
+    быстрого фаззи-фильтра автоответчика (например, "швабра не работает"
+    текстово похоже на "вы работаете?", но по смыслу — не про график).
+    При отсутствии ключа/ошибке — доверяем быстрому фильтру (True)."""
+    if not DEEPSEEK_API_KEY:
+        return True
+
+    headers = {
+        "Authorization": f"Bearer {DEEPSEEK_API_KEY}",
+        "Content-Type": "application/json",
+    }
+
+    payload = {
+        "model": "deepseek-chat",
+        "temperature": 0,
+        "messages": [
+            {
+                "role": "system",
+                "content": (
+                    f"Ответь только одним словом: 'да' или 'нет'. Вопрос: {question} "
+                    "Учитывай, что сообщение может лишь текстово напоминать этот вопрос, "
+                    "не будучи им по смыслу (например, жалоба на неработающий товар — "
+                    "это не вопрос о графике работы магазина)."
+                ),
+            },
+            {"role": "user", "content": text},
+        ],
+    }
+
+    try:
+        timeout = aiohttp.ClientTimeout(total=10)
+        async with aiohttp.ClientSession(timeout=timeout) as session:
+            async with session.post(DEEPSEEK_URL, headers=headers, json=payload) as resp:
+                if resp.status != 200:
+                    return True
+
+                data = await resp.json()
+                content = data["choices"][0]["message"]["content"].strip().lower()
+                return content.startswith("да")
+    except Exception:
+        return True

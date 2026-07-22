@@ -4,6 +4,13 @@ from rapidfuzz import fuzz
 from telegram import Update
 from telegram.ext import ContextTypes
 from shops import SHOPS
+from moderation import confirm_intent
+
+CONFIRM_QUESTIONS = {
+    "address": "Спрашивает ли пользователь адрес/местоположение магазина?",
+    "work_time": "Спрашивает ли пользователь про график/часы/время работы магазина?",
+    "max_link": "Спрашивает ли пользователь, есть ли этот магазин в мессенджере MAX?",
+}
 
 BLACKLIST = ["есть"]
 BLACKLIST_LINKS = ["https://max.ru/join"]
@@ -78,21 +85,21 @@ async def handle_auto_reply(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     if not shop:
         return False
 
-    if is_relevant(text, ADDRESS_KEYWORDS):
+    if is_relevant(text, ADDRESS_KEYWORDS) and await confirm_intent(text, CONFIRM_QUESTIONS["address"]):
         await update.message.reply_text(
             shop["address"],
             reply_to_message_id=update.message.message_id
         )
         return True
 
-    if is_relevant(text, WORK_KEYWORDS):
+    if is_relevant(text, WORK_KEYWORDS) and await confirm_intent(text, CONFIRM_QUESTIONS["work_time"]):
         await update.message.reply_text(
             shop["work_time"],
             reply_to_message_id=update.message.message_id
         )
         return True
 
-    if is_relevant(text, MAX_KEYWORDS):
+    if is_relevant(text, MAX_KEYWORDS) and await confirm_intent(text, CONFIRM_QUESTIONS["max_link"]):
         await update.message.reply_text(
             shop["max_link"],
             disable_web_page_preview=True,

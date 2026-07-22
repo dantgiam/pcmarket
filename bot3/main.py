@@ -16,9 +16,9 @@ import max_client
 import vk_client
 import relay_state
 from relay_shops import RELAY_SHOPS
-from auto_reply import ADDRESS_KEYWORDS, WORK_KEYWORDS, is_relevant, is_blacklisted_link
+from auto_reply import ADDRESS_KEYWORDS, WORK_KEYWORDS, is_relevant, is_blacklisted_link, CONFIRM_QUESTIONS
 from shops import SHOPS
-from moderation import check_spam
+from moderation import check_spam, confirm_intent
 
 MAX_BOT_TOKEN = os.environ.get("MAX_BOT_TOKEN")
 TG_BOT_TOKEN = os.environ.get("TOKENOTVET")
@@ -80,7 +80,7 @@ def _format_relayed_text(text: str, author_name: str, is_admin: bool, source_lab
     return f"{prefix}: {text}" if text else prefix
 
 
-def _max_auto_reply_text(text: str, tg_chat_id: int) -> str | None:
+async def _max_auto_reply_text(text: str, tg_chat_id: int) -> str | None:
     """Ответ на вопрос об адресе/графике — прямо в MAX. Переиспользует ключевые
     слова и тексты магазинов из bot2 (вопрос "есть ли вы в MAX" здесь не имеет
     смысла — пользователь и так пишет из MAX, поэтому не отвечаем на него)."""
@@ -91,9 +91,9 @@ def _max_auto_reply_text(text: str, tg_chat_id: int) -> str | None:
     if not shop_content:
         return None
 
-    if is_relevant(text, ADDRESS_KEYWORDS):
+    if is_relevant(text, ADDRESS_KEYWORDS) and await confirm_intent(text, CONFIRM_QUESTIONS["address"]):
         return shop_content["address"]
-    if is_relevant(text, WORK_KEYWORDS):
+    if is_relevant(text, WORK_KEYWORDS) and await confirm_intent(text, CONFIRM_QUESTIONS["work_time"]):
         return shop_content["work_time"]
 
     return None
@@ -207,7 +207,7 @@ async def _handle_message(
     admin_ids = await _get_admin_ids(session, chat_id)
     is_admin = sender_id in admin_ids if sender_id is not None else False
 
-    reply_text = _max_auto_reply_text(text, shop["tg_chat_id"])
+    reply_text = await _max_auto_reply_text(text, shop["tg_chat_id"])
     if reply_text:
         try:
             await max_client.send_message(
