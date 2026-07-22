@@ -35,10 +35,19 @@ _admin_cache: dict[int, tuple[float, set]] = {}
 def _extract_text_and_photo_urls(message: dict) -> tuple[str, list[str]]:
     body = message.get("body", {})
     text = body.get("text") or ""
+    attachments = body.get("attachments", [])
+
+    # Пересланное сообщение (форвард) хранит своё содержимое не в body,
+    # а во вложенном link.message — сама body у форварда обычно пустая.
+    link = message.get("link") or {}
+    if link.get("type") == "forward":
+        fwd_body = link.get("message") or {}
+        text = text or fwd_body.get("text") or ""
+        attachments = attachments or fwd_body.get("attachments", [])
 
     photo_urls = [
         att["payload"]["url"]
-        for att in body.get("attachments", [])
+        for att in attachments
         if att.get("type") == "image" and att.get("payload", {}).get("url")
     ]
 
@@ -151,6 +160,9 @@ async def _handle_message(
 ) -> None:
     text, photo_urls = _extract_text_and_photo_urls(message)
     if not text and not photo_urls:
+        link = message.get("link") or {}
+        if link:
+            print(f"🔗 Пустое сообщение с link (возможно, форвард нераспознанного формата): {message}")
         return
 
     sender = message.get("sender") or {}
