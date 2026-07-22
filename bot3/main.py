@@ -125,6 +125,9 @@ async def _handle_max_moderation(
     return True
 
 
+TG_CAPTION_LIMIT = 1024  # лимит Telegram на подпись к фото (у обычного текста лимит больше — 4096)
+
+
 async def _relay_to_telegram(
     bot: Bot,
     tg_chat_id: int,
@@ -139,16 +142,28 @@ async def _relay_to_telegram(
             return msg.message_id
         return None
 
+    # Длинный текст не влезает в подпись к фото — шлём фото без подписи,
+    # а текст отдельным сообщением следом (тем же тредом).
+    fits_caption = len(text) <= TG_CAPTION_LIMIT
+    caption = text if fits_caption else None
+
     if len(photos) == 1:
         msg = await bot.send_photo(
-            tg_chat_id, photo=photos[0], caption=text or None,
+            tg_chat_id, photo=photos[0], caption=caption or None,
             reply_to_message_id=reply_to_message_id,
         )
-        return msg.message_id
+    else:
+        media = [InputMediaPhoto(p, caption=caption if i == 0 else None) for i, p in enumerate(photos)]
+        messages = await bot.send_media_group(tg_chat_id, media, reply_to_message_id=reply_to_message_id)
+        msg = messages[0] if messages else None
 
-    media = [InputMediaPhoto(p, caption=text if i == 0 else None) for i, p in enumerate(photos)]
-    messages = await bot.send_media_group(tg_chat_id, media, reply_to_message_id=reply_to_message_id)
-    return messages[0].message_id if messages else None
+    message_id = msg.message_id if msg else None
+
+    if not fits_caption and text:
+        follow_up = await bot.send_message(tg_chat_id, text, reply_to_message_id=message_id)
+        message_id = message_id or follow_up.message_id
+
+    return message_id
 
 
 async def _handle_message(
