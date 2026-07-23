@@ -87,28 +87,73 @@ def has_marketplace_markers(text: str) -> bool:
     return any(marker in t for marker in MARKETPLACE_MARKERS)
 
 
+def _otsu_threshold(hist: list) -> int:
+    """Порог Otsu по гистограмме (256 бинов) — без numpy/cv2."""
+    total = sum(hist)
+    if total == 0:
+        return 127
+    sum_total = sum(i * hist[i] for i in range(256))
+    sum_b = 0.0
+    w_b = 0
+    max_var = -1.0
+    threshold = 127
+    for i in range(256):
+        w_b += hist[i]
+        if w_b == 0:
+            continue
+        w_f = total - w_b
+        if w_f == 0:
+            break
+        sum_b += i * hist[i]
+        m_b = sum_b / w_b
+        m_f = (sum_total - sum_b) / w_f
+        var_between = w_b * w_f * (m_b - m_f) ** 2
+        if var_between > max_var:
+            max_var = var_between
+            threshold = i
+    return threshold
+
+
+def _ocr_variants(base):
+    """Готовит несколько версий картинки для OCR: серую, чёрно-белую
+    (бинаризация Otsu) и её инверсию — стилизованный светлый текст на
+    тёмном фоне обычный OCR часто не видит, а на ч/б после инверсии
+    (тёмный текст на светлом) читается заметно лучше."""
+    variants = [base]
+    t = _otsu_threshold(base.histogram())
+    bw = base.point(lambda p: 255 if p > t else 0)
+    variants.append(bw)
+    variants.append(ImageOps.invert(bw))
+    return variants
+
+
 def ocr_image(image_bytes: bytes) -> str:
     """Распознаёт текст на картинке (рекламные объявления часто рисуют
     весь текст прямо на картинке, стилизованным шрифтом на градиентном
     фоне — обычный OCR без предобработки такое нередко не видит).
     При любой ошибке — пустая строка (не блокируем модерацию)."""
     try:
-        image = Image.open(io.BytesIO(image_bytes)).convert("L")
-        image = ImageOps.autocontrast(image)
-        if image.width < 1200:
-            scale = 1200 / image.width
-            image = image.resize((int(image.width * scale), int(image.height * scale)))
+        base = Image.open(io.BytesIO(image_bytes)).convert("L")
+        base = ImageOps.autocontrast(base)
+        if base.width < 1200:
+            scale = 1200 / base.width
+            base = base.resize((int(base.width * scale), int(base.height * scale)))
 
+        seen = set()
         texts = []
-        # psm 3 — обычный связный текст, psm 11 — разрозненные надписи
-        # (заголовки, плашки), типичные для рекламных картинок.
-        for psm in (3, 11):
-            try:
-                chunk = pytesseract.image_to_string(image, lang="rus+eng", config=f"--psm {psm}")
-                if chunk.strip():
-                    texts.append(chunk.strip())
-            except Exception:
-                pass
+        # Несколько вариантов картинки × режимов сегментации: psm 3 —
+        # обычный связный текст, psm 11 — разрозненные надписи/плашки,
+        # типичные для рекламных картинок.
+        for variant in _ocr_variants(base):
+            for psm in (3, 11):
+                try:
+                    chunk = pytesseract.image_to_string(variant, lang="rus+eng", config=f"--psm {psm}").strip()
+                except Exception:
+                    continue
+                norm = " ".join(chunk.split()).lower()
+                if norm and norm not in seen:
+                    seen.add(norm)
+                    texts.append(chunk)
         return "\n".join(texts)
     except Exception:
         return ""
