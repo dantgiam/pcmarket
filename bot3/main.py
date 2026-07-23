@@ -16,7 +16,10 @@ import max_client
 import vk_client
 import relay_state
 from relay_shops import RELAY_SHOPS
-from auto_reply import ADDRESS_KEYWORDS, WORK_KEYWORDS, is_relevant, is_blacklisted_link, CONFIRM_QUESTIONS
+from auto_reply import (
+    ADDRESS_KEYWORDS, WORK_KEYWORDS, OTHER_SHOP_KEYWORDS, TG_LINK_KEYWORDS,
+    OTHER_SHOP_TEXT, is_relevant, is_blacklisted_link, CONFIRM_QUESTIONS,
+)
 from shops import SHOPS
 from moderation import check_spam, confirm_intent, ocr_image
 
@@ -91,10 +94,14 @@ async def _max_auto_reply_text(text: str, tg_chat_id: int) -> str | None:
     if not shop_content:
         return None
 
+    if is_relevant(text, OTHER_SHOP_KEYWORDS) and await confirm_intent(text, CONFIRM_QUESTIONS["other_shop"]):
+        return OTHER_SHOP_TEXT
     if is_relevant(text, ADDRESS_KEYWORDS) and await confirm_intent(text, CONFIRM_QUESTIONS["address"]):
         return shop_content["address"]
     if is_relevant(text, WORK_KEYWORDS) and await confirm_intent(text, CONFIRM_QUESTIONS["work_time"]):
         return shop_content["work_time"]
+    if is_relevant(text, TG_LINK_KEYWORDS) and await confirm_intent(text, CONFIRM_QUESTIONS["tg_link"]):
+        return f"📱 Наш чат в Telegram: {shop_content['tg_link']}"
 
     return None
 
