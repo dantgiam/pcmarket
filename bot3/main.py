@@ -21,7 +21,7 @@ from auto_reply import (
     OTHER_SHOP_TEXT, is_relevant, is_blacklisted_link, CONFIRM_QUESTIONS,
 )
 from shops import SHOPS
-from moderation import check_spam, confirm_intent, ocr_image
+from moderation import check_spam, confirm_intent, ocr_image, has_marketplace_markers
 
 MAX_BOT_TOKEN = os.environ.get("MAX_BOT_TOKEN")
 TG_BOT_TOKEN = os.environ.get("TOKENOTVET")
@@ -110,33 +110,30 @@ async def _max_auto_reply_text(text: str, tg_chat_id: int) -> str | None:
     return None
 
 
-async def _handle_max_moderation(
+async def _remove_max_message(
     session: aiohttp.ClientSession,
     chat_id: int,
     message: dict,
     sender_id,
     text: str,
-) -> bool:
-    """Возвращает True, если сообщение — спам (удалено, автор забанен)."""
-    action = await check_spam(text)
-    if action != "BAN":
-        return False
-
+    ban: bool,
+) -> None:
+    """Удаляет сообщение и (если ban=True) банит автора."""
     message_id = message.get("body", {}).get("mid")
     if message_id:
         try:
             await max_client.delete_message(session, MAX_BOT_TOKEN, message_id)
         except Exception as e:
-            print(f"⚠️ Не удалось удалить спам-сообщение в MAX-чате {chat_id}: {e}")
+            print(f"⚠️ Не удалось удалить сообщение в MAX-чате {chat_id}: {e}")
 
-    if sender_id is not None:
+    if ban and sender_id is not None:
         try:
             await max_client.ban_member(session, MAX_BOT_TOKEN, chat_id, sender_id)
         except Exception as e:
             print(f"⚠️ Не удалось забанить {sender_id} в MAX-чате {chat_id}: {e}")
 
-    print(f"🚫 Забанен в MAX-чате {chat_id}: user_id={sender_id}, текст: {text}")
-    return True
+    label = "Забанен" if ban else "Удалено (без бана)"
+    print(f"🚫 {label} в MAX-чате {chat_id}: user_id={sender_id}, текст: {text}")
 
 
 TG_CAPTION_LIMIT = 1024  # лимит Telegram на подпись к фото (у обычного текста лимит больше — 4096)
@@ -240,18 +237,30 @@ async def _handle_message(
     ]
 
     if not is_admin:
-        # Любое фото от участника изначально считаем подозрительным (не
-        # только без подписи) — текст рекламных объявлений часто нарисован
-        # на самой картинке. Распознаём через OCR и добавляем к тексту.
-        mod_text = text
-        if photos:
+        # Явный текстовый спам (человек сам написал) — удаляем и баним, как
+        # раньше. Реклама, обнаруженная только на картинке через OCR, — риск
+        # ложных срабатываний выше (например, скриншот с маркетплейса),
+        # поэтому пока только удаляем, без бана. Скриншоты с явными маркерами
+        # стороннего маркетплейса (Wildberries/Ozon/Avito и т.п.) не трогаем.
+        removed = False
+
+        if text:
+            action = await check_spam(text)
+            if action == "BAN":
+                await _remove_max_message(session, chat_id, message, sender_id, text, ban=True)
+                removed = True
+
+        if not removed and photos:
             ocr_text = await asyncio.to_thread(ocr_image, photos[0])
-            if ocr_text:
-                mod_text = f"{mod_text}\n{ocr_text}".strip() if mod_text else ocr_text
-        if mod_text:
-            banned = await _handle_max_moderation(session, chat_id, message, sender_id, mod_text)
-            if banned:
-                return
+            if ocr_text and not has_marketplace_markers(ocr_text):
+                combined_text = f"{text}\n{ocr_text}".strip() if text else ocr_text
+                action = await check_spam(combined_text)
+                if action == "BAN":
+                    await _remove_max_message(session, chat_id, message, sender_id, combined_text, ban=False)
+                    removed = True
+
+        if removed:
+            return
 
     relay_text = _format_relayed_text(text, _sender_name(sender), is_admin, "MAX")
 

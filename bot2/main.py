@@ -11,7 +11,7 @@ from telegram.ext import (
 )
 
 from auto_reply import handle_auto_reply
-from moderation import check_spam, ocr_image
+from moderation import check_spam, ocr_image, has_marketplace_markers
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "bot3"))
 import max_client
@@ -92,51 +92,62 @@ async def send_ban_log(context, chat, user, text: str):
 
 
 async def moderate(update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool:
-    """Проверяет сообщение на спам через DeepSeek и банит нарушителя.
-    Возвращает True, если сообщение расценено как спам (значит, его не нужно
-    релеить в MAX, даже если сам бан по какой-то причине не удался)."""
-    text = update.message.text or update.message.caption or ""
-
-    # Любое фото от участника изначально считаем подозрительным (не только
-    # без подписи) — текст рекламных объявлений часто нарисован на самой
-    # картинке, а не написан в подписи. Распознаём через OCR и добавляем
-    # к тексту для проверки на спам.
-    if update.message.photo:
-        try:
-            photo = update.message.photo[-1]
-            file = await context.bot.get_file(photo.file_id)
-            photo_bytes = bytes(await file.download_as_bytearray())
-            ocr_text = await asyncio.to_thread(ocr_image, photo_bytes)
-            if ocr_text:
-                text = f"{text}\n{ocr_text}".strip() if text else ocr_text
-        except Exception:
-            pass
-
-    if not text:
-        return False
-
-    action = await check_spam(text)
-    if action != "BAN":
-        return False
-
+    """Проверяет сообщение на спам через DeepSeek.
+    Явный текстовый спам (человек сам написал) — удаляем и баним, как раньше.
+    Реклама, обнаруженная только на картинке через OCR, — риск ложных
+    срабатываний выше (например, скриншот с маркетплейса), поэтому пока
+    только удаляем, без бана. Скриншоты с явными маркерами стороннего
+    маркетплейса (Wildberries/Ozon/Avito и т.п.) не трогаем вовсе.
+    Возвращает True, если сообщение было удалено (не нужно релеить в MAX)."""
     user = update.effective_user
     chat = update.effective_chat
+    typed_text = update.message.text or update.message.caption or ""
+
+    if typed_text:
+        action = await check_spam(typed_text)
+        if action == "BAN":
+            try:
+                await update.message.delete()
+            except Exception:
+                pass
+
+            banned = False
+            try:
+                await context.bot.ban_chat_member(chat_id=chat.id, user_id=user.id)
+                banned = True
+            except Exception:
+                pass
+
+            if banned:
+                await send_ban_log(context, chat, user, typed_text)
+
+            return True
+
+    if not update.message.photo:
+        return False
+
+    try:
+        photo = update.message.photo[-1]
+        file = await context.bot.get_file(photo.file_id)
+        photo_bytes = bytes(await file.download_as_bytearray())
+        ocr_text = await asyncio.to_thread(ocr_image, photo_bytes)
+    except Exception:
+        ocr_text = ""
+
+    if not ocr_text or has_marketplace_markers(ocr_text):
+        return False
+
+    combined_text = f"{typed_text}\n{ocr_text}".strip() if typed_text else ocr_text
+    action = await check_spam(combined_text)
+    if action != "BAN":
+        return False
 
     try:
         await update.message.delete()
     except Exception:
         pass
 
-    banned = False
-    try:
-        await context.bot.ban_chat_member(chat_id=chat.id, user_id=user.id)
-        banned = True
-    except Exception:
-        pass
-
-    if banned:
-        await send_ban_log(context, chat, user, text)
-
+    print(f"🗑️ Удалено рекламное фото (без бана): чат={chat.id}, user={user.id if user else '?'}, ocr={ocr_text!r}")
     return True
 
 
