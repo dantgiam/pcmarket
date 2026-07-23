@@ -238,7 +238,8 @@ async def _handle_message(
         for url in video_urls
     ]
 
-    print(f"🛡️ Модерация: sender_id={sender_id}, is_admin={is_admin}, text={text!r}, photos={len(photos)}")
+    photo_sizes = [len(p) if p else 0 for p in photos]
+    print(f"🛡️ Модерация: sender_id={sender_id}, is_admin={is_admin}, text={text!r}, photos={len(photos)}, размеры={photo_sizes}")
 
     if not is_admin:
         # Явный текстовый спам (человек сам написал) — удаляем и баним, как

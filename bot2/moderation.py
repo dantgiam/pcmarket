@@ -132,31 +132,47 @@ def ocr_image(image_bytes: bytes) -> str:
     весь текст прямо на картинке, стилизованным шрифтом на градиентном
     фоне — обычный OCR без предобработки такое нередко не видит).
     При любой ошибке — пустая строка (не блокируем модерацию)."""
+    print(f"🔬 OCR: получено байт={len(image_bytes) if image_bytes else 0}")
+    if not image_bytes:
+        return ""
+
+    # Явная проверка, что бинарь Tesseract вообще доступен — иначе
+    # pytesseract кидает TesseractNotFoundError, которое иначе молча
+    # проглатывается и выглядит как "текст не распознан".
+    try:
+        version = pytesseract.get_tesseract_version()
+        print(f"🔬 OCR: tesseract version={version}")
+    except Exception as e:
+        print(f"⚠️ OCR: Tesseract НЕ доступен ({type(e).__name__}: {e})")
+        return ""
+
     try:
         base = Image.open(io.BytesIO(image_bytes)).convert("L")
         base = ImageOps.autocontrast(base)
         if base.width < 1200:
             scale = 1200 / base.width
             base = base.resize((int(base.width * scale), int(base.height * scale)))
-
-        seen = set()
-        texts = []
-        # Несколько вариантов картинки × режимов сегментации: psm 3 —
-        # обычный связный текст, psm 11 — разрозненные надписи/плашки,
-        # типичные для рекламных картинок.
-        for variant in _ocr_variants(base):
-            for psm in (3, 11):
-                try:
-                    chunk = pytesseract.image_to_string(variant, lang="rus+eng", config=f"--psm {psm}").strip()
-                except Exception:
-                    continue
-                norm = " ".join(chunk.split()).lower()
-                if norm and norm not in seen:
-                    seen.add(norm)
-                    texts.append(chunk)
-        return "\n".join(texts)
-    except Exception:
+    except Exception as e:
+        print(f"⚠️ OCR: не удалось открыть картинку ({type(e).__name__}: {e})")
         return ""
+
+    seen = set()
+    texts = []
+    # Несколько вариантов картинки × режимов сегментации: psm 3 —
+    # обычный связный текст, psm 11 — разрозненные надписи/плашки,
+    # типичные для рекламных картинок.
+    for variant in _ocr_variants(base):
+        for psm in (3, 11):
+            try:
+                chunk = pytesseract.image_to_string(variant, lang="rus+eng", config=f"--psm {psm}").strip()
+            except Exception as e:
+                print(f"⚠️ OCR: ошибка распознавания psm={psm} ({type(e).__name__}: {e})")
+                continue
+            norm = " ".join(chunk.split()).lower()
+            if norm and norm not in seen:
+                seen.add(norm)
+                texts.append(chunk)
+    return "\n".join(texts)
 
 
 async def check_spam(text: str) -> str:
