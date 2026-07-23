@@ -236,6 +236,8 @@ async def _handle_message(
         for url in video_urls
     ]
 
+    print(f"🛡️ Модерация: sender_id={sender_id}, is_admin={is_admin}, text={text!r}, photos={len(photos)}")
+
     if not is_admin:
         # Явный текстовый спам (человек сам написал) — удаляем и баним, как
         # раньше. Реклама, обнаруженная только на картинке через OCR, — риск
@@ -246,15 +248,19 @@ async def _handle_message(
 
         if text:
             action = await check_spam(text)
+            print(f"🛡️ check_spam(текст): action={action}")
             if action == "BAN":
                 await _remove_max_message(session, chat_id, message, sender_id, text, ban=True)
                 removed = True
 
         if not removed and photos:
             ocr_text = await asyncio.to_thread(ocr_image, photos[0])
-            if ocr_text and not has_marketplace_markers(ocr_text):
+            markers = has_marketplace_markers(ocr_text) if ocr_text else False
+            print(f"🛡️ OCR фото: текст={ocr_text!r}, маркетплейс-маркеры={markers}")
+            if ocr_text and not markers:
                 combined_text = f"{text}\n{ocr_text}".strip() if text else ocr_text
                 action = await check_spam(combined_text)
+                print(f"🛡️ check_spam(картинка): action={action}")
                 if action == "BAN":
                     await _remove_max_message(session, chat_id, message, sender_id, combined_text, ban=False)
                     removed = True
