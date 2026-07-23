@@ -21,7 +21,7 @@ from auto_reply import (
     OTHER_SHOP_TEXT, is_relevant, is_blacklisted_link, CONFIRM_QUESTIONS,
 )
 from shops import SHOPS
-from moderation import check_spam, confirm_intent, ocr_image, has_marketplace_markers
+from moderation import check_spam, confirm_intent, ocr_image, has_marketplace_markers, TEST_NON_ADMIN_TAG
 
 MAX_BOT_TOKEN = os.environ.get("MAX_BOT_TOKEN")
 TG_BOT_TOKEN = os.environ.get("TOKENOTVET")
@@ -214,6 +214,8 @@ async def _handle_message(
 
     admin_ids = await _get_admin_ids(session, chat_id)
     is_admin = sender_id in admin_ids if sender_id is not None else False
+    if TEST_NON_ADMIN_TAG in text:
+        is_admin = False
 
     reply_text = await _max_auto_reply_text(text, shop["tg_chat_id"])
     if reply_text:

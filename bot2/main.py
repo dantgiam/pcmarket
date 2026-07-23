@@ -11,7 +11,7 @@ from telegram.ext import (
 )
 
 from auto_reply import handle_auto_reply
-from moderation import check_spam, ocr_image, has_marketplace_markers
+from moderation import check_spam, ocr_image, has_marketplace_markers, TEST_NON_ADMIN_TAG
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "bot3"))
 import max_client
@@ -46,6 +46,11 @@ async def is_exempt(update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool:
     user = update.effective_user
     if user is None:
         return True
+
+    test_text = update.message.text or update.message.caption or "" if update.message else ""
+    if TEST_NON_ADMIN_TAG in test_text:
+        return False
+
     if user.id in ADMIN_IDS:
         return True
 

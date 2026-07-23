@@ -10,6 +10,11 @@ from PIL import Image, ImageOps
 DEEPSEEK_API_KEY = os.environ.get("DEEPSEEK_API_KEY")
 DEEPSEEK_URL = "https://api.deepseek.com/chat/completions"
 
+# Тестовый тег: если он есть в тексте/подписи сообщения админа, модерация
+# обрабатывает это сообщение как от обычного участника — чтобы можно было
+# проверить OCR/бан/удаление, тестируя со своего же админского аккаунта.
+TEST_NON_ADMIN_TAG = "#т3"
+
 PROMPT = """
 Ты являешься системой модерации Telegram.
 
