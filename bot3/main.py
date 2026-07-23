@@ -94,14 +94,18 @@ async def _max_auto_reply_text(text: str, tg_chat_id: int) -> str | None:
     if not shop_content:
         return None
 
-    if is_relevant(text, OTHER_SHOP_KEYWORDS) and await confirm_intent(text, CONFIRM_QUESTIONS["other_shop"]):
-        return OTHER_SHOP_TEXT
-    if is_relevant(text, ADDRESS_KEYWORDS) and await confirm_intent(text, CONFIRM_QUESTIONS["address"]):
-        return shop_content["address"]
-    if is_relevant(text, WORK_KEYWORDS) and await confirm_intent(text, CONFIRM_QUESTIONS["work_time"]):
-        return shop_content["work_time"]
-    if is_relevant(text, TG_LINK_KEYWORDS) and await confirm_intent(text, CONFIRM_QUESTIONS["tg_link"]):
-        return f"📱 Наш чат в Telegram: {shop_content['tg_link']}"
+    for category, keywords, reply in (
+        ("other_shop", OTHER_SHOP_KEYWORDS, OTHER_SHOP_TEXT),
+        ("address", ADDRESS_KEYWORDS, shop_content["address"]),
+        ("work_time", WORK_KEYWORDS, shop_content["work_time"]),
+        ("tg_link", TG_LINK_KEYWORDS, f"📱 Наш чат в Telegram: {shop_content['tg_link']}"),
+    ):
+        if not is_relevant(text, keywords):
+            continue
+        confirmed = await confirm_intent(text, CONFIRM_QUESTIONS[category])
+        print(f"🤖 MAX автоответ: категория={category}, текст={text!r}, confirm_intent={confirmed}")
+        if confirmed:
+            return reply
 
     return None
 
