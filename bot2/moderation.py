@@ -3,7 +3,7 @@ import os
 import json
 import aiohttp
 import pytesseract
-from PIL import Image
+from PIL import Image, ImageOps
 
 # ---------------- Антиспам-модерация через DeepSeek ----------------
 
@@ -66,13 +66,28 @@ PROMPT = """
 
 
 def ocr_image(image_bytes: bytes) -> str:
-    """Распознаёт текст на картинке (рекламные объявления часто шлют
-    картинкой без подписи — весь текст "зашит" в саму картинку, поэтому
-    обычная проверка по тексту/подписи их пропускает). При любой ошибке —
-    пустая строка (не блокируем модерацию)."""
+    """Распознаёт текст на картинке (рекламные объявления часто рисуют
+    весь текст прямо на картинке, стилизованным шрифтом на градиентном
+    фоне — обычный OCR без предобработки такое нередко не видит).
+    При любой ошибке — пустая строка (не блокируем модерацию)."""
     try:
-        image = Image.open(io.BytesIO(image_bytes))
-        return pytesseract.image_to_string(image, lang="rus+eng").strip()
+        image = Image.open(io.BytesIO(image_bytes)).convert("L")
+        image = ImageOps.autocontrast(image)
+        if image.width < 1200:
+            scale = 1200 / image.width
+            image = image.resize((int(image.width * scale), int(image.height * scale)))
+
+        texts = []
+        # psm 3 — обычный связный текст, psm 11 — разрозненные надписи
+        # (заголовки, плашки), типичные для рекламных картинок.
+        for psm in (3, 11):
+            try:
+                chunk = pytesseract.image_to_string(image, lang="rus+eng", config=f"--psm {psm}")
+                if chunk.strip():
+                    texts.append(chunk.strip())
+            except Exception:
+                pass
+        return "\n".join(texts)
     except Exception:
         return ""
 

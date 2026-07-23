@@ -1,3 +1,4 @@
+import asyncio
 import os
 import sys
 
@@ -96,17 +97,20 @@ async def moderate(update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool:
     релеить в MAX, даже если сам бан по какой-то причине не удался)."""
     text = update.message.text or update.message.caption or ""
 
-    # Рекламные картинки часто шлют без подписи — весь текст объявления
-    # нарисован на самой картинке. Распознаём его через OCR, чтобы такие
-    # сообщения тоже проверялись на спам.
-    if not text and update.message.photo:
+    # Любое фото от участника изначально считаем подозрительным (не только
+    # без подписи) — текст рекламных объявлений часто нарисован на самой
+    # картинке, а не написан в подписи. Распознаём через OCR и добавляем
+    # к тексту для проверки на спам.
+    if update.message.photo:
         try:
             photo = update.message.photo[-1]
             file = await context.bot.get_file(photo.file_id)
             photo_bytes = bytes(await file.download_as_bytearray())
-            text = ocr_image(photo_bytes)
+            ocr_text = await asyncio.to_thread(ocr_image, photo_bytes)
+            if ocr_text:
+                text = f"{text}\n{ocr_text}".strip() if text else ocr_text
         except Exception:
-            text = ""
+            pass
 
     if not text:
         return False

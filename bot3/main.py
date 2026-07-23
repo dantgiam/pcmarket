@@ -240,10 +240,14 @@ async def _handle_message(
     ]
 
     if not is_admin:
-        # Рекламные картинки часто шлют без подписи — текст объявления
-        # нарисован на самой картинке, распознаём его через OCR, чтобы
-        # такие сообщения тоже проверялись на спам.
-        mod_text = text or (ocr_image(photos[0]) if photos else "")
+        # Любое фото от участника изначально считаем подозрительным (не
+        # только без подписи) — текст рекламных объявлений часто нарисован
+        # на самой картинке. Распознаём через OCR и добавляем к тексту.
+        mod_text = text
+        if photos:
+            ocr_text = await asyncio.to_thread(ocr_image, photos[0])
+            if ocr_text:
+                mod_text = f"{mod_text}\n{ocr_text}".strip() if mod_text else ocr_text
         if mod_text:
             banned = await _handle_max_moderation(session, chat_id, message, sender_id, mod_text)
             if banned:
