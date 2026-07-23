@@ -132,7 +132,6 @@ def ocr_image(image_bytes: bytes) -> str:
     весь текст прямо на картинке, стилизованным шрифтом на градиентном
     фоне — обычный OCR без предобработки такое нередко не видит).
     При любой ошибке — пустая строка (не блокируем модерацию)."""
-    print(f"🔬 OCR: получено байт={len(image_bytes) if image_bytes else 0}")
     if not image_bytes:
         return ""
 
@@ -140,8 +139,7 @@ def ocr_image(image_bytes: bytes) -> str:
     # pytesseract кидает TesseractNotFoundError, которое иначе молча
     # проглатывается и выглядит как "текст не распознан".
     try:
-        version = pytesseract.get_tesseract_version()
-        print(f"🔬 OCR: tesseract version={version}")
+        pytesseract.get_tesseract_version()
     except Exception as e:
         print(f"⚠️ OCR: Tesseract НЕ доступен ({type(e).__name__}: {e})")
         return ""
@@ -255,7 +253,6 @@ async def confirm_intent(text: str, question: str) -> bool:
 
                 data = await resp.json()
                 content = data["choices"][0]["message"]["content"].strip()
-                print(f"🔎 confirm_intent: вопрос={question!r}, текст={text!r}, ответ DeepSeek={content!r}")
                 return content.lower().startswith("да")
     except Exception as e:
         print(f"⚠️ confirm_intent: исключение {e}")

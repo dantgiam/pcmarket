@@ -102,9 +102,7 @@ async def _max_auto_reply_text(text: str, tg_chat_id: int) -> str | None:
     ):
         if not is_relevant(text, keywords):
             continue
-        confirmed = await confirm_intent(text, CONFIRM_QUESTIONS[category])
-        print(f"🤖 MAX автоответ: категория={category}, текст={text!r}, confirm_intent={confirmed}")
-        if confirmed:
+        if await confirm_intent(text, CONFIRM_QUESTIONS[category]):
             return reply
 
     return None
@@ -115,7 +113,6 @@ async def _remove_max_message(
     chat_id: int,
     message: dict,
     sender_id,
-    text: str,
     ban: bool,
 ) -> None:
     """Удаляет сообщение и (если ban=True) банит автора."""
@@ -133,7 +130,7 @@ async def _remove_max_message(
             print(f"⚠️ Не удалось забанить {sender_id} в MAX-чате {chat_id}: {e}")
 
     label = "Забанен" if ban else "Удалено (без бана)"
-    print(f"🚫 {label} в MAX-чате {chat_id}: user_id={sender_id}, текст: {text}")
+    print(f"🚫 {label} в MAX-чате {chat_id}: user_id={sender_id}")
 
 
 TG_CAPTION_LIMIT = 1024  # лимит Telegram на подпись к фото (у обычного текста лимит больше — 4096)
@@ -238,9 +235,6 @@ async def _handle_message(
         for url in video_urls
     ]
 
-    photo_sizes = [len(p) if p else 0 for p in photos]
-    print(f"🛡️ Модерация: sender_id={sender_id}, is_admin={is_admin}, text={text!r}, photos={len(photos)}, размеры={photo_sizes}")
-
     if not is_admin:
         # Явный текстовый спам (человек сам написал) — удаляем и баним, как
         # раньше. Реклама, обнаруженная только на картинке через OCR, — риск
@@ -250,22 +244,16 @@ async def _handle_message(
         removed = False
 
         if text:
-            action = await check_spam(text)
-            print(f"🛡️ check_spam(текст): action={action}")
-            if action == "BAN":
-                await _remove_max_message(session, chat_id, message, sender_id, text, ban=True)
+            if await check_spam(text) == "BAN":
+                await _remove_max_message(session, chat_id, message, sender_id, ban=True)
                 removed = True
 
         if not removed and photos:
             ocr_text = await asyncio.to_thread(ocr_image, photos[0])
-            markers = has_marketplace_markers(ocr_text) if ocr_text else False
-            print(f"🛡️ OCR фото: текст={ocr_text!r}, маркетплейс-маркеры={markers}")
-            if ocr_text and not markers:
+            if ocr_text and not has_marketplace_markers(ocr_text):
                 combined_text = f"{text}\n{ocr_text}".strip() if text else ocr_text
-                action = await check_spam(combined_text)
-                print(f"🛡️ check_spam(картинка): action={action}")
-                if action == "BAN":
-                    await _remove_max_message(session, chat_id, message, sender_id, combined_text, ban=False)
+                if await check_spam(combined_text) == "BAN":
+                    await _remove_max_message(session, chat_id, message, sender_id, ban=False)
                     removed = True
 
         if removed:

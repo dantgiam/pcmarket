@@ -152,7 +152,7 @@ async def moderate(update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool:
     except Exception:
         pass
 
-    print(f"🗑️ Удалено рекламное фото (без бана): чат={chat.id}, user={user.id if user else '?'}, ocr={ocr_text!r}")
+    print(f"🗑️ Удалено рекламное фото (без бана): чат={chat.id}, user={user.id if user else '?'}")
     return True
 
 
