@@ -149,10 +149,14 @@ async def confirm_intent(text: str, question: str) -> bool:
         async with aiohttp.ClientSession(timeout=timeout) as session:
             async with session.post(DEEPSEEK_URL, headers=headers, json=payload) as resp:
                 if resp.status != 200:
+                    body = await resp.text()
+                    print(f"⚠️ confirm_intent: DeepSeek вернул статус {resp.status}: {body[:300]}")
                     return True
 
                 data = await resp.json()
-                content = data["choices"][0]["message"]["content"].strip().lower()
-                return content.startswith("да")
-    except Exception:
+                content = data["choices"][0]["message"]["content"].strip()
+                print(f"🔎 confirm_intent: вопрос={question!r}, текст={text!r}, ответ DeepSeek={content!r}")
+                return content.lower().startswith("да")
+    except Exception as e:
+        print(f"⚠️ confirm_intent: исключение {e}")
         return True
