@@ -1,6 +1,9 @@
+import io
 import os
 import json
 import aiohttp
+import pytesseract
+from PIL import Image
 
 # ---------------- Антиспам-модерация через DeepSeek ----------------
 
@@ -60,6 +63,18 @@ PROMPT = """
 
 Никакого текста кроме JSON.
 """
+
+
+def ocr_image(image_bytes: bytes) -> str:
+    """Распознаёт текст на картинке (рекламные объявления часто шлют
+    картинкой без подписи — весь текст "зашит" в саму картинку, поэтому
+    обычная проверка по тексту/подписи их пропускает). При любой ошибке —
+    пустая строка (не блокируем модерацию)."""
+    try:
+        image = Image.open(io.BytesIO(image_bytes))
+        return pytesseract.image_to_string(image, lang="rus+eng").strip()
+    except Exception:
+        return ""
 
 
 async def check_spam(text: str) -> str:

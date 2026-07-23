@@ -10,7 +10,7 @@ from telegram.ext import (
 )
 
 from auto_reply import handle_auto_reply
-from moderation import check_spam
+from moderation import check_spam, ocr_image
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "bot3"))
 import max_client
@@ -94,7 +94,20 @@ async def moderate(update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool:
     """Проверяет сообщение на спам через DeepSeek и банит нарушителя.
     Возвращает True, если сообщение расценено как спам (значит, его не нужно
     релеить в MAX, даже если сам бан по какой-то причине не удался)."""
-    text = update.message.text or update.message.caption
+    text = update.message.text or update.message.caption or ""
+
+    # Рекламные картинки часто шлют без подписи — весь текст объявления
+    # нарисован на самой картинке. Распознаём его через OCR, чтобы такие
+    # сообщения тоже проверялись на спам.
+    if not text and update.message.photo:
+        try:
+            photo = update.message.photo[-1]
+            file = await context.bot.get_file(photo.file_id)
+            photo_bytes = bytes(await file.download_as_bytearray())
+            text = ocr_image(photo_bytes)
+        except Exception:
+            text = ""
+
     if not text:
         return False
 

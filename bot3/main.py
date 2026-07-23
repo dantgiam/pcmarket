@@ -18,7 +18,7 @@ import relay_state
 from relay_shops import RELAY_SHOPS
 from auto_reply import ADDRESS_KEYWORDS, WORK_KEYWORDS, is_relevant, is_blacklisted_link, CONFIRM_QUESTIONS
 from shops import SHOPS
-from moderation import check_spam, confirm_intent
+from moderation import check_spam, confirm_intent, ocr_image
 
 MAX_BOT_TOKEN = os.environ.get("MAX_BOT_TOKEN")
 TG_BOT_TOKEN = os.environ.get("TOKENOTVET")
@@ -219,11 +219,6 @@ async def _handle_message(
         # Вопрос уже отвечен на месте — дальше (в TG/VK) не пересылаем
         return
 
-    if not is_admin and text:
-        banned = await _handle_max_moderation(session, chat_id, message, sender_id, text)
-        if banned:
-            return
-
     photos = [
         await max_client.download_attachment(session, MAX_BOT_TOKEN, url)
         for url in photo_urls
@@ -232,6 +227,16 @@ async def _handle_message(
         await max_client.download_attachment(session, MAX_BOT_TOKEN, url)
         for url in video_urls
     ]
+
+    if not is_admin:
+        # Рекламные картинки часто шлют без подписи — текст объявления
+        # нарисован на самой картинке, распознаём его через OCR, чтобы
+        # такие сообщения тоже проверялись на спам.
+        mod_text = text or (ocr_image(photos[0]) if photos else "")
+        if mod_text:
+            banned = await _handle_max_moderation(session, chat_id, message, sender_id, mod_text)
+            if banned:
+                return
 
     relay_text = _format_relayed_text(text, _sender_name(sender), is_admin, "MAX")
 
