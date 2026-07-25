@@ -252,9 +252,14 @@ async def confirm_intent(text: str, question: str) -> bool:
     """Уточняющий вопрос к DeepSeek для защиты от ложных срабатываний
     быстрого фаззи-фильтра автоответчика (например, "швабра не работает"
     текстово похоже на "вы работаете?", но по смыслу — не про график).
-    При отсутствии ключа/ошибке — доверяем быстрому фильтру (True)."""
+
+    При ошибке отвечаем False, то есть автоответ НЕ отправляем: промолчать
+    безобидно (ответит человек), а невпопад ответить на чужой вопрос —
+    заметный ляп. Раньше дефолт был True, и на сломанном API бот отвечал
+    на всё подряд, что совпало по буквам."""
     if not DEEPSEEK_API_KEY:
-        return True
+        print("⚠️ confirm_intent: DEEPSEEK_API_KEY не задан — автоответы отключены")
+        return False
 
     headers = {
         "Authorization": f"Bearer {DEEPSEEK_API_KEY}",
@@ -286,11 +291,11 @@ async def confirm_intent(text: str, question: str) -> bool:
                 if resp.status != 200:
                     body = await resp.text()
                     print(f"⚠️ confirm_intent: DeepSeek вернул статус {resp.status}: {body[:300]}")
-                    return True
+                    return False
 
                 data = await resp.json()
                 content = data["choices"][0]["message"]["content"].strip()
                 return content.lower().startswith("да")
     except Exception as e:
         print(f"⚠️ confirm_intent: исключение {e}")
-        return True
+        return False

@@ -12,6 +12,7 @@ CONFIRM_QUESTIONS = {
     "max_link": "Хочет ли пользователь узнать, есть ли этот магазин в мессенджере MAX?",
     "other_shop": "Хочет ли пользователь узнать про другой магазин сети (адрес, ссылку, чат), а не про текущий?",
     "tg_link": "Хочет ли пользователь получить ссылку на Telegram (тг) этого магазина или узнать, есть ли у них Telegram?",
+    "invite": "Просит ли пользователь добавить его самого или другого человека в этот чат/группу, либо спрашивает, как в неё вступить?",
 }
 
 BLACKLIST = ["есть"]
@@ -47,13 +48,29 @@ TG_LINK_KEYWORDS = [
     "есть ли вы в телеграм", "есть ли вы в тг", "группа в телеграме",
     "чат в телеграме", "телеграм канал", "тг канал", "тг чат",
     "ваш тг", "ваш телеграм", "у вас тг", "у вас телеграм",
-    "можно тг", "можно телеграм", "дайте тг", "дайте телеграм",
+    "ссылку на тг", "ссылку на телеграм",
+]
+
+# Просьбы добавить кого-то в чат/контакты — отвечаем ссылкой на чат,
+# по ней человек вступает сам (добавлять вручную бот не может).
+INVITE_KEYWORDS = [
+    "добавьте меня", "добавить меня", "добавьте в группу", "добавить в группу",
+    "добавьте в чат", "добавить в чат", "добавьте человека", "добавить человека",
+    "добавьте контакт", "добавить контакт", "добавьте подругу", "добавьте друга",
+    "как вступить", "как попасть в чат", "как попасть в группу",
+    "пригласить в группу", "пригласите в группу", "как добавиться",
 ]
 
 OTHER_SHOP_TEXT = (
     "🖥 Вот наш сайт, тут ссылки на все наши магазины, "
     "можете выбрать ближайший👌\nhttps://polcenimarket.ru/"
 )
+
+
+def invite_text(link: str) -> str:
+    """Ответ на просьбу добавить в чат: добавлять людей бот не может,
+    зато по ссылке человек вступает сам."""
+    return f"👥 Поделитесь этой ссылкой — по ней можно вступить в наш чат:\n{link}"
 
 THRESHOLD = 85
 
@@ -110,6 +127,14 @@ async def handle_auto_reply(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     if is_relevant(text, OTHER_SHOP_KEYWORDS) and await confirm_intent(text, CONFIRM_QUESTIONS["other_shop"]):
         await update.message.reply_text(
             OTHER_SHOP_TEXT,
+            disable_web_page_preview=True,
+            reply_to_message_id=update.message.message_id
+        )
+        return True
+
+    if is_relevant(text, INVITE_KEYWORDS) and await confirm_intent(text, CONFIRM_QUESTIONS["invite"]):
+        await update.message.reply_text(
+            invite_text(shop["tg_link"]),
             disable_web_page_preview=True,
             reply_to_message_id=update.message.message_id
         )

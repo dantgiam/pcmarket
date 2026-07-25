@@ -4,6 +4,7 @@
 
 import asyncio
 import os
+import re
 import sys
 import time
 
@@ -18,7 +19,8 @@ import relay_state
 from relay_shops import RELAY_SHOPS, TEST_CHAT_IDS
 from auto_reply import (
     ADDRESS_KEYWORDS, WORK_KEYWORDS, OTHER_SHOP_KEYWORDS, TG_LINK_KEYWORDS,
-    OTHER_SHOP_TEXT, is_relevant, is_blacklisted_link, CONFIRM_QUESTIONS,
+    INVITE_KEYWORDS, OTHER_SHOP_TEXT, invite_text, is_relevant,
+    is_blacklisted_link, CONFIRM_QUESTIONS,
 )
 from shops import SHOPS
 from moderation import check_spam, confirm_intent, ocr_image, TEST_NON_ADMIN_TAG
@@ -83,6 +85,13 @@ def _format_relayed_text(text: str, author_name: str, is_admin: bool, source_lab
     return f"{prefix}: {text}" if text else prefix
 
 
+def _max_join_url(shop_content: dict) -> str | None:
+    """Достаёт ссылку-приглашение в MAX-группу из markdown-текста max_link
+    (в shops.py она хранится в виде "[нажмите сюда](https://max.ru/join/...)")."""
+    match = re.search(r"https://max\.ru/join/\S+?(?=[)\s]|$)", shop_content.get("max_link", ""))
+    return match.group(0) if match else None
+
+
 async def _max_auto_reply_text(text: str, tg_chat_id: int) -> str | None:
     """Ответ на вопрос об адресе/графике — прямо в MAX. Переиспользует ключевые
     слова и тексты магазинов из bot2 (вопрос "есть ли вы в MAX" здесь не имеет
@@ -94,8 +103,12 @@ async def _max_auto_reply_text(text: str, tg_chat_id: int) -> str | None:
     if not shop_content:
         return None
 
+    # Приглашение шлём в MAX-чат — человек уже здесь, добавить хочет сюда же.
+    invite_link = _max_join_url(shop_content) or shop_content["tg_link"]
+
     for category, keywords, reply in (
         ("other_shop", OTHER_SHOP_KEYWORDS, OTHER_SHOP_TEXT),
+        ("invite", INVITE_KEYWORDS, invite_text(invite_link)),
         ("address", ADDRESS_KEYWORDS, shop_content["address"]),
         ("work_time", WORK_KEYWORDS, shop_content["work_time"]),
         ("tg_link", TG_LINK_KEYWORDS, f"📱 Наш чат в Telegram: {shop_content['tg_link']}"),
