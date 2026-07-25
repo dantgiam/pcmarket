@@ -255,7 +255,9 @@ async def _handle_message(
         if removed:
             return
 
-    reply_text = await _max_auto_reply_text(text, shop["tg_chat_id"])
+    # У песочницы своего магазина нет — тексты автоответов берём у указанного.
+    content_chat_id = shop.get("content_tg_chat_id") or shop["tg_chat_id"]
+    reply_text = await _max_auto_reply_text(text, content_chat_id)
     if reply_text:
         try:
             await max_client.send_message(
