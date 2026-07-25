@@ -1,6 +1,7 @@
 import asyncio
 import os
 import sys
+import time
 
 import aiohttp
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
@@ -11,7 +12,7 @@ from telegram.ext import (
 )
 
 from auto_reply import handle_auto_reply
-from moderation import check_spam, ocr_image, has_marketplace_markers, TEST_NON_ADMIN_TAG
+from moderation import check_spam, ocr_image, TEST_NON_ADMIN_TAG
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "bot3"))
 import max_client
@@ -43,13 +44,22 @@ def user_label(user) -> str:
 
 async def is_exempt(update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool:
     """True, если сообщение от админа чата или из белого списка — не модерируем."""
+    msg = update.effective_message
     user = update.effective_user
-    if user is None:
-        return True
 
-    test_text = update.message.text or update.message.caption or "" if update.message else ""
+    test_text = (msg.text or msg.caption or "") if msg else ""
     if TEST_NON_ADMIN_TAG in test_text:
         return False
+
+    # Сообщение от имени чата/канала (sender_chat). Анонимный админ пишет от
+    # имени самой группы — это админ. Всё остальное (пост от имени стороннего
+    # канала) — частый способ обойти модерацию, поэтому проверяем.
+    sender_chat = msg.sender_chat if msg else None
+    if sender_chat is not None:
+        return sender_chat.id == update.effective_chat.id
+
+    if user is None:
+        return True
 
     if user.id in ADMIN_IDS:
         return True
@@ -69,21 +79,31 @@ async def is_exempt(update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool:
     return False
 
 
-async def send_ban_log(context, chat, user, text: str):
+async def send_ban_log(context, chat, user, text: str, sender_chat=None):
     """Отправляет в чат-логов запись о бане с кнопкой разбана."""
     if not LOG_CHAT_ID:
         return
 
+    # Спам могут слать и от имени канала — тогда банится канал, а не юзер.
+    banned_id = sender_chat.id if sender_chat is not None else (user.id if user else None)
+    if banned_id is None:
+        return
+
+    if sender_chat is not None:
+        author = f"канал «{sender_chat.title or sender_chat.id}» [id {sender_chat.id}]"
+    else:
+        author = user_label(user)
+
     keyboard = InlineKeyboardMarkup([[
         InlineKeyboardButton(
             "♻️ Разбанить",
-            callback_data=f"unban:{chat.id}:{user.id}"
+            callback_data=f"unban:{chat.id}:{banned_id}"
         )
     ]])
 
     log_text = (
         "🚫 Забанен спамер\n\n"
-        f"👤 {user_label(user)}\n"
+        f"👤 {author}\n"
         f"💬 Чат: {chat.title or chat.id}\n\n"
         f"📝 Сообщение:\n{text}"
     )
@@ -96,61 +116,118 @@ async def send_ban_log(context, chat, user, text: str):
         pass
 
 
+async def ban_sender(context, chat, user, sender_chat) -> bool:
+    """Банит автора сообщения — обычного пользователя или канал."""
+    try:
+        if sender_chat is not None:
+            await context.bot.ban_chat_sender_chat(chat_id=chat.id, sender_chat_id=sender_chat.id)
+        else:
+            await context.bot.ban_chat_member(chat_id=chat.id, user_id=user.id)
+        return True
+    except Exception:
+        return False
+
+
+async def message_image_bytes(msg, context) -> bytes | None:
+    """Картинка из сообщения — обычным фото или файлом (несжатая картинка
+    документом — частый способ протащить рекламный баннер мимо проверки)."""
+    file_id = None
+    if msg.photo:
+        file_id = msg.photo[-1].file_id
+    elif msg.document and (msg.document.mime_type or "").startswith("image/"):
+        file_id = msg.document.file_id
+
+    if not file_id:
+        return None
+
+    try:
+        file = await context.bot.get_file(file_id)
+        return bytes(await file.download_as_bytearray())
+    except Exception as e:
+        print(f"⚠️ Не удалось скачать картинку для проверки: {type(e).__name__}: {e}")
+        return None
+
+
+# Альбомы, признанные спамом: media_group_id -> время. Остальные картинки
+# альбома приходят отдельными апдейтами уже после удаления первой, и без
+# этого списка они остались бы висеть в чате.
+_spam_media_groups: dict[str, float] = {}
+MEDIA_GROUP_TTL = 5 * 60
+
+
+def remember_spam_album(msg) -> None:
+    if not msg.media_group_id:
+        return
+    now = time.monotonic()
+    for group_id, seen_at in list(_spam_media_groups.items()):
+        if now - seen_at > MEDIA_GROUP_TTL:
+            _spam_media_groups.pop(group_id, None)
+    _spam_media_groups[msg.media_group_id] = now
+
+
+def is_spam_album(msg) -> bool:
+    if not msg.media_group_id:
+        return False
+    seen_at = _spam_media_groups.get(msg.media_group_id)
+    if seen_at is None:
+        return False
+    if time.monotonic() - seen_at > MEDIA_GROUP_TTL:
+        _spam_media_groups.pop(msg.media_group_id, None)
+        return False
+    return True
+
+
 async def moderate(update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool:
     """Проверяет сообщение на спам через DeepSeek.
-    Явный текстовый спам (человек сам написал) — удаляем и баним, как раньше.
-    Реклама, обнаруженная только на картинке через OCR, — риск ложных
-    срабатываний выше (например, скриншот с маркетплейса), поэтому пока
-    только удаляем, без бана. Скриншоты с явными маркерами стороннего
-    маркетплейса (Wildberries/Ozon/Avito и т.п.) не трогаем вовсе.
+    Явный текстовый спам (человек сам написал) — удаляем и баним.
+    Реклама, найденная только на картинке через OCR, — точность ниже,
+    поэтому только удаляем, без бана.
     Возвращает True, если сообщение было удалено (не нужно релеить в MAX)."""
+    msg = update.effective_message
     user = update.effective_user
     chat = update.effective_chat
-    typed_text = update.message.text or update.message.caption or ""
+    sender_chat = msg.sender_chat
+
+    # Остальные картинки альбома, первая часть которого уже признана спамом.
+    if is_spam_album(msg):
+        try:
+            await msg.delete()
+        except Exception:
+            pass
+        return True
+
+    typed_text = msg.text or msg.caption or ""
 
     if typed_text:
-        action = await check_spam(typed_text)
-        if action == "BAN":
+        if await check_spam(typed_text) == "BAN":
             try:
-                await update.message.delete()
+                await msg.delete()
             except Exception:
                 pass
+            remember_spam_album(msg)
 
-            banned = False
-            try:
-                await context.bot.ban_chat_member(chat_id=chat.id, user_id=user.id)
-                banned = True
-            except Exception:
-                pass
-
-            if banned:
-                await send_ban_log(context, chat, user, typed_text)
+            if await ban_sender(context, chat, user, sender_chat):
+                await send_ban_log(context, chat, user, typed_text, sender_chat)
 
             return True
 
-    if not update.message.photo:
+    photo_bytes = await message_image_bytes(msg, context)
+    if not photo_bytes:
         return False
 
-    try:
-        photo = update.message.photo[-1]
-        file = await context.bot.get_file(photo.file_id)
-        photo_bytes = bytes(await file.download_as_bytearray())
-        ocr_text = await asyncio.to_thread(ocr_image, photo_bytes)
-    except Exception:
-        ocr_text = ""
-
-    if not ocr_text or has_marketplace_markers(ocr_text):
+    ocr_text = await asyncio.to_thread(ocr_image, photo_bytes)
+    if not ocr_text:
         return False
 
     combined_text = f"{typed_text}\n{ocr_text}".strip() if typed_text else ocr_text
-    action = await check_spam(combined_text)
-    if action != "BAN":
+    if await check_spam(combined_text) != "BAN":
         return False
 
     try:
-        await update.message.delete()
+        await msg.delete()
     except Exception:
         pass
+    remember_spam_album(msg)
 
     print(f"🗑️ Удалено рекламное фото (без бана): чат={chat.id}, user={user.id if user else '?'}")
     return True
@@ -165,12 +242,17 @@ async def unban_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     try:
-        _, chat_id, user_id = query.data.split(":")
-        await context.bot.unban_chat_member(
-            chat_id=int(chat_id),
-            user_id=int(user_id),
-            only_if_banned=True,
-        )
+        _, chat_id, banned_id = query.data.split(":")
+        chat_id, banned_id = int(chat_id), int(banned_id)
+        try:
+            await context.bot.unban_chat_member(
+                chat_id=chat_id, user_id=banned_id, only_if_banned=True,
+            )
+        except Exception:
+            # Спамер мог писать от имени канала — тогда забанен канал.
+            await context.bot.unban_chat_sender_chat(
+                chat_id=chat_id, sender_chat_id=banned_id,
+            )
     except Exception:
         await query.answer("Не удалось разбанить", show_alert=True)
         return
@@ -200,6 +282,12 @@ async def relay_to_max(update: Update, context: ContextTypes.DEFAULT_TYPE, is_ad
         return
 
     text = update.message.text or update.message.caption or ""
+
+    # Нечего пересылать: файл/гифка/видео без подписи ушли бы в MAX пустой
+    # строкой «TG, Имя» (сами вложения таких типов мы туда не заливаем).
+    if not text and not update.message.photo:
+        return
+
     author_name = update.effective_user.full_name if update.effective_user else "TG-пользователь"
     if is_admin:
         relay_text = text
@@ -246,22 +334,39 @@ async def handle_group_message(update: Update, context: ContextTypes.DEFAULT_TYP
     if LOG_CHAT_ID and update.effective_chat.id == LOG_CHAT_ID:
         return
 
-    # Обычный вопрос клиента (адрес / график / MAX) — отвечаем и не баним
-    handled_by_auto_reply = await handle_auto_reply(update, context)
-
     # Админов и доверенных не модерируем, их сообщения в MAX идут без подписи
     exempt = await is_exempt(update, context)
 
-    # Вопрос про адрес/график уже отвечен на месте — дальше (в MAX) не пересылаем
-    if handled_by_auto_reply:
+    # Модерация идёт ДО автоответа: иначе спам, в котором есть вопрос про
+    # адрес/график, получал бы автоответ и уходил от проверки совсем.
+    if not exempt and await moderate(update, context):
         return
 
-    is_spam = False
-    if not exempt:
-        is_spam = await moderate(update, context)
+    # Обычный вопрос клиента (адрес / график / MAX) — отвечаем и не пересылаем
+    if await handle_auto_reply(update, context):
+        return
 
-    if not is_spam:
-        await relay_to_max(update, context, is_admin=exempt)
+    await relay_to_max(update, context, is_admin=exempt)
+
+
+async def handle_edited_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Отредактированные сообщения — классический обход модерации: прислать
+    безобидный текст, потом заменить его на рекламу. Проверяем повторно
+    (только модерация, релей и автоответ тут не нужны)."""
+    if LOG_CHAT_ID and update.effective_chat.id == LOG_CHAT_ID:
+        return
+
+    if not await is_exempt(update, context):
+        await moderate(update, context)
+
+
+# Реклама приходит не только текстом и фото: картинку часто шлют файлом
+# (несжатой), а также GIF-анимацией — раньше такие сообщения не попадали
+# в обработчик вообще и проходили мимо модерации.
+CONTENT_FILTER = (
+    filters.TEXT | filters.PHOTO | filters.VIDEO
+    | filters.Document.ALL | filters.ANIMATION
+)
 
 
 def main():
@@ -270,12 +375,18 @@ def main():
     app.add_handler(CommandHandler("id", get_id))
     app.add_handler(CallbackQueryHandler(unban_callback, pattern=r"^unban:"))
     app.add_handler(MessageHandler(
-        (filters.TEXT | filters.PHOTO | filters.VIDEO)
-        & (filters.ChatType.GROUPS | filters.ChatType.SUPERGROUP),
+        CONTENT_FILTER & filters.ChatType.GROUPS & filters.UpdateType.MESSAGE,
         handle_group_message
     ))
+    app.add_handler(MessageHandler(
+        CONTENT_FILTER & filters.ChatType.GROUPS & filters.UpdateType.EDITED_MESSAGE,
+        handle_edited_message
+    ))
 
-    app.run_polling(drop_pending_updates=True)
+    # drop_pending_updates=False: при рестарте (а он бывает при каждом
+    # деплое) накопившиеся сообщения иначе выбрасываются и никогда не
+    # проверяются на спам.
+    app.run_polling(drop_pending_updates=False)
 
 
 if __name__ == "__main__":

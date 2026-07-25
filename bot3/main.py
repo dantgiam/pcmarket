@@ -21,7 +21,7 @@ from auto_reply import (
     OTHER_SHOP_TEXT, is_relevant, is_blacklisted_link, CONFIRM_QUESTIONS,
 )
 from shops import SHOPS
-from moderation import check_spam, confirm_intent, ocr_image, has_marketplace_markers, TEST_NON_ADMIN_TAG
+from moderation import check_spam, confirm_intent, ocr_image, TEST_NON_ADMIN_TAG
 
 MAX_BOT_TOKEN = os.environ.get("MAX_BOT_TOKEN")
 TG_BOT_TOKEN = os.environ.get("TOKENOTVET")
@@ -215,6 +215,46 @@ async def _handle_message(
     if TEST_NON_ADMIN_TAG in text or is_test_chat:
         is_admin = False
 
+    photos = [
+        await max_client.download_attachment(session, MAX_BOT_TOKEN, url)
+        for url in photo_urls
+    ]
+    videos = [
+        await max_client.download_attachment(session, MAX_BOT_TOKEN, url)
+        for url in video_urls
+    ]
+
+    # Модерация идёт ДО автоответа: иначе спам, в котором есть вопрос про
+    # адрес/график, получал бы автоответ и уходил от проверки совсем.
+    if not is_admin:
+        # Явный текстовый спам (человек сам написал) — удаляем и баним.
+        # Реклама, найденная только на картинке через OCR, — точность ниже,
+        # поэтому только удаляем, без бана.
+        removed = False
+
+        if text:
+            if await check_spam(text) == "BAN":
+                # В тест-чате не баним, чтобы не залочить себя при тестах.
+                await _remove_max_message(session, chat_id, message, sender_id, ban=not is_test_chat)
+                removed = True
+
+        if not removed and photos:
+            # Проверяем ВСЕ картинки: в альбоме реклама может быть не первой.
+            ocr_chunks = []
+            for photo in photos:
+                chunk = await asyncio.to_thread(ocr_image, photo)
+                if chunk:
+                    ocr_chunks.append(chunk)
+
+            if ocr_chunks:
+                combined_text = "\n".join([text] + ocr_chunks) if text else "\n".join(ocr_chunks)
+                if await check_spam(combined_text) == "BAN":
+                    await _remove_max_message(session, chat_id, message, sender_id, ban=False)
+                    removed = True
+
+        if removed:
+            return
+
     reply_text = await _max_auto_reply_text(text, shop["tg_chat_id"])
     if reply_text:
         try:
@@ -226,40 +266,6 @@ async def _handle_message(
             print(f"⚠️ Ошибка автоответа в MAX ({shop['name']}): {e}")
         # Вопрос уже отвечен на месте — дальше (в TG/VK) не пересылаем
         return
-
-    photos = [
-        await max_client.download_attachment(session, MAX_BOT_TOKEN, url)
-        for url in photo_urls
-    ]
-    videos = [
-        await max_client.download_attachment(session, MAX_BOT_TOKEN, url)
-        for url in video_urls
-    ]
-
-    if not is_admin:
-        # Явный текстовый спам (человек сам написал) — удаляем и баним, как
-        # раньше. Реклама, обнаруженная только на картинке через OCR, — риск
-        # ложных срабатываний выше (например, скриншот с маркетплейса),
-        # поэтому пока только удаляем, без бана. Скриншоты с явными маркерами
-        # стороннего маркетплейса (Wildberries/Ozon/Avito и т.п.) не трогаем.
-        removed = False
-
-        if text:
-            if await check_spam(text) == "BAN":
-                # В тест-чате не баним, чтобы не залочить себя при тестах.
-                await _remove_max_message(session, chat_id, message, sender_id, ban=not is_test_chat)
-                removed = True
-
-        if not removed and photos:
-            ocr_text = await asyncio.to_thread(ocr_image, photos[0])
-            if ocr_text and not has_marketplace_markers(ocr_text):
-                combined_text = f"{text}\n{ocr_text}".strip() if text else ocr_text
-                if await check_spam(combined_text) == "BAN":
-                    await _remove_max_message(session, chat_id, message, sender_id, ban=False)
-                    removed = True
-
-        if removed:
-            return
 
     # Нет парного TG-чата (например, тестовая песочница) — модерация уже
     # отработала выше, а релеить/постить в VK некуда.

@@ -1,3 +1,4 @@
+import asyncio
 import io
 import os
 import json
@@ -51,7 +52,20 @@ PROMPT = """
 нормальная витрина товаров чата, всегда OK, даже если есть хэштеги, цена
 и слово "продажа"/"распродажа".
 
+Текст может быть распознан с картинки (OCR) — тогда он бывает рваным, с
+опечатками и обрывками слов. Суди по смыслу, а не по грамотности.
+
+Скриншот чужого маркетплейса (Wildberries, Ozon, Avito, Юла, AliExpress,
+Яндекс Маркет), который участник прислал обсудить товар — это НЕ нарушение,
+это OK. Признаки такого скриншота: элементы интерфейса приложения
+("в корзину", "добавить в корзину", рейтинг, "отзывов", цена со скидкой).
+Но само по себе упоминание маркетплейса НЕ делает сообщение безопасным:
+если это рекламная афиша услуг (оформление документов, ремонт, кредиты,
+работа, эвакуатор, установка техники) с призывом связаться или номером
+телефона — это нарушение, даже если рядом написано "Ozon" или "в корзину".
+
 Примеры нарушений (BAN):
+- рекламный баннер услуг с телефоном и призывом "обращайтесь в личные сообщения"
 - "Добрый день, в цех требуются сборщики капризных макарон, пишите, обсудим"
 - "Ищу людей на удалёнку, доход от 5000 в день, пиши в лс"
 - "Набираем сотрудников, гибкий график, детали в личке"
@@ -68,23 +82,6 @@ PROMPT = """
 
 Никакого текста кроме JSON.
 """
-
-
-MARKETPLACE_MARKERS = [
-    "wildberries", "ozon", "avito", "юла", "aliexpress",
-    "яндекс маркет", "яндекс.маркет", "маркетплейс",
-    "добавить в корзину", "в корзину", "бесплатная доставка",
-    "отзывов", "перейти в магазин",
-]
-
-
-def has_marketplace_markers(text: str) -> bool:
-    """True, если на картинке виден интерфейс стороннего маркетплейса
-    (Wildberries/Ozon/Avito и т.п. — по бренду или типичным элементам
-    интерфейса). Такие скриншоты обычно шлют для обсуждения, а не как
-    своё объявление, поэтому их не трогаем."""
-    t = text.lower()
-    return any(marker in t for marker in MARKETPLACE_MARKERS)
 
 
 def _otsu_threshold(hist: list) -> int:
@@ -173,9 +170,15 @@ def ocr_image(image_bytes: bytes) -> str:
     return "\n".join(texts)
 
 
+CHECK_SPAM_ATTEMPTS = 3
+
+
 async def check_spam(text: str) -> str:
-    """Возвращает "BAN" или "OK". При любой ошибке — "OK" (не баним)."""
+    """Возвращает "BAN" или "OK". При ошибке — "OK" (не баним), но ошибку
+    обязательно логируем: молчаливый пропуск означает, что весь спам этого
+    периода прошёл незамеченным, и об этом нужно знать."""
     if not DEEPSEEK_API_KEY:
+        print("⚠️ check_spam: DEEPSEEK_API_KEY не задан — модерация не работает, всё пропускается!")
         return "OK"
 
     headers = {
@@ -192,23 +195,35 @@ async def check_spam(text: str) -> str:
         ],
     }
 
-    try:
-        timeout = aiohttp.ClientTimeout(total=20)
-        async with aiohttp.ClientSession(timeout=timeout) as session:
-            async with session.post(DEEPSEEK_URL, headers=headers, json=payload) as resp:
-                if resp.status != 200:
-                    return "OK"
+    # Таймауты и 429/5xx у DeepSeek — обычное дело под нагрузкой, поэтому
+    # повторяем: без ретраев каждый такой сбой = пропущенный спам.
+    for attempt in range(1, CHECK_SPAM_ATTEMPTS + 1):
+        try:
+            timeout = aiohttp.ClientTimeout(total=20)
+            async with aiohttp.ClientSession(timeout=timeout) as session:
+                async with session.post(DEEPSEEK_URL, headers=headers, json=payload) as resp:
+                    if resp.status != 200:
+                        body = (await resp.text())[:200]
+                        print(f"⚠️ check_spam: DeepSeek статус {resp.status} (попытка {attempt}): {body}")
+                        if resp.status < 500 and resp.status != 429:
+                            return "OK"  # ошибка запроса, повтор не поможет
+                        await asyncio.sleep(attempt)
+                        continue
 
-                data = await resp.json()
-                content = data["choices"][0]["message"]["content"].strip()
+                    data = await resp.json()
+                    content = data["choices"][0]["message"]["content"].strip()
 
-                try:
-                    result = json.loads(content)
-                    return result.get("action", "OK")
-                except Exception:
-                    return "OK"
-    except Exception:
-        return "OK"
+                    try:
+                        return json.loads(content).get("action", "OK")
+                    except Exception:
+                        print(f"⚠️ check_spam: ответ DeepSeek не JSON: {content[:200]}")
+                        return "OK"
+        except Exception as e:
+            print(f"⚠️ check_spam: ошибка запроса (попытка {attempt}): {type(e).__name__}: {e}")
+            await asyncio.sleep(attempt)
+
+    print("⚠️ check_spam: все попытки исчерпаны — сообщение пропущено без проверки")
+    return "OK"
 
 
 async def confirm_intent(text: str, question: str) -> bool:
