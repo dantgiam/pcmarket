@@ -15,7 +15,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "bot2"))
 import max_client
 import vk_client
 import relay_state
-from relay_shops import RELAY_SHOPS
+from relay_shops import RELAY_SHOPS, TEST_CHAT_IDS
 from auto_reply import (
     ADDRESS_KEYWORDS, WORK_KEYWORDS, OTHER_SHOP_KEYWORDS, TG_LINK_KEYWORDS,
     OTHER_SHOP_TEXT, is_relevant, is_blacklisted_link, CONFIRM_QUESTIONS,
@@ -211,7 +211,8 @@ async def _handle_message(
 
     admin_ids = await _get_admin_ids(session, chat_id)
     is_admin = sender_id in admin_ids if sender_id is not None else False
-    if TEST_NON_ADMIN_TAG in text:
+    is_test_chat = chat_id in TEST_CHAT_IDS
+    if TEST_NON_ADMIN_TAG in text or is_test_chat:
         is_admin = False
 
     reply_text = await _max_auto_reply_text(text, shop["tg_chat_id"])
@@ -245,7 +246,8 @@ async def _handle_message(
 
         if text:
             if await check_spam(text) == "BAN":
-                await _remove_max_message(session, chat_id, message, sender_id, ban=True)
+                # В тест-чате не баним, чтобы не залочить себя при тестах.
+                await _remove_max_message(session, chat_id, message, sender_id, ban=not is_test_chat)
                 removed = True
 
         if not removed and photos:
@@ -258,6 +260,11 @@ async def _handle_message(
 
         if removed:
             return
+
+    # Нет парного TG-чата (например, тестовая песочница) — модерация уже
+    # отработала выше, а релеить/постить в VK некуда.
+    if not shop["tg_chat_id"]:
+        return
 
     relay_text = _format_relayed_text(text, _sender_name(sender), is_admin, "MAX")
 
