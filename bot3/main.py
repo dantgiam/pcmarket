@@ -9,13 +9,14 @@ import sys
 import time
 
 import aiohttp
-from telegram import Bot, InputMediaPhoto, InputMediaVideo
+from telegram import Bot
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "bot2"))
 
 import max_client
 import vk_client
 import relay_state
+import channel_relay
 from relay_shops import RELAY_SHOPS, TEST_CHAT_IDS
 from auto_reply import (
     ADDRESS_KEYWORDS, WORK_KEYWORDS, OTHER_SHOP_KEYWORDS, TG_LINK_KEYWORDS,
@@ -35,31 +36,6 @@ MAX_BOT_USER_ID = None
 
 ADMIN_CACHE_TTL = 30 * 60  # секунд
 _admin_cache: dict[int, tuple[float, set]] = {}
-
-
-def _extract_text_and_media(message: dict) -> tuple[str, list[str], list[str]]:
-    """Возвращает (text, photo_urls, video_urls)."""
-    body = message.get("body", {})
-    text = body.get("text") or ""
-    attachments = body.get("attachments", [])
-
-    # Пересланное сообщение (форвард) хранит своё содержимое не в body,
-    # а во вложенном link.message — сама body у форварда обычно пустая.
-    link = message.get("link") or {}
-    if link.get("type") == "forward":
-        fwd_body = link.get("message") or {}
-        text = text or fwd_body.get("text") or ""
-        attachments = attachments or fwd_body.get("attachments", [])
-
-    def urls(*att_types: str) -> list[str]:
-        return [
-            att["payload"]["url"]
-            for att in attachments
-            if att.get("type") in att_types and att.get("payload", {}).get("url")
-        ]
-
-    # MAX не единообразен: фото встречаются то как "image", то как "photo".
-    return text, urls("image", "photo"), urls("video")
 
 
 async def _get_admin_ids(session: aiohttp.ClientSession, chat_id: int) -> set:
@@ -146,61 +122,6 @@ async def _remove_max_message(
     print(f"🚫 {label} в MAX-чате {chat_id}: user_id={sender_id}")
 
 
-TG_CAPTION_LIMIT = 1024  # лимит Telegram на подпись к фото (у обычного текста лимит больше — 4096)
-
-
-async def _relay_to_telegram(
-    bot: Bot,
-    tg_chat_id: int,
-    text: str,
-    photos: list[bytes],
-    videos: list[bytes] | None = None,
-    reply_to_message_id: int | None = None,
-) -> int | None:
-    """Отправляет сообщение, возвращает message_id (для reply-threading)."""
-    videos = videos or []
-    combined = [("photo", p) for p in photos] + [("video", v) for v in videos]
-
-    if not combined:
-        if text:
-            msg = await bot.send_message(tg_chat_id, text, reply_to_message_id=reply_to_message_id)
-            return msg.message_id
-        return None
-
-    # Длинный текст не влезает в подпись к фото/видео — шлём медиа без подписи,
-    # а текст отдельным сообщением следом (тем же тредом).
-    fits_caption = len(text) <= TG_CAPTION_LIMIT
-    caption = text if fits_caption else None
-
-    if len(combined) == 1:
-        kind, data = combined[0]
-        if kind == "photo":
-            msg = await bot.send_photo(
-                tg_chat_id, photo=data, caption=caption or None,
-                reply_to_message_id=reply_to_message_id,
-            )
-        else:
-            msg = await bot.send_video(
-                tg_chat_id, video=data, caption=caption or None,
-                reply_to_message_id=reply_to_message_id,
-            )
-    else:
-        media = [
-            (InputMediaPhoto if kind == "photo" else InputMediaVideo)(data, caption=caption if i == 0 else None)
-            for i, (kind, data) in enumerate(combined)
-        ]
-        messages = await bot.send_media_group(tg_chat_id, media, reply_to_message_id=reply_to_message_id)
-        msg = messages[0] if messages else None
-
-    message_id = msg.message_id if msg else None
-
-    if not fits_caption and text:
-        follow_up = await bot.send_message(tg_chat_id, text, reply_to_message_id=message_id)
-        message_id = message_id or follow_up.message_id
-
-    return message_id
-
-
 async def _handle_message(
     session: aiohttp.ClientSession,
     bot: Bot,
@@ -208,7 +129,7 @@ async def _handle_message(
     message: dict,
     chat_id: int,
 ) -> None:
-    text, photo_urls, video_urls = _extract_text_and_media(message)
+    text, photo_urls, video_urls, _markup = channel_relay.extract_text_and_media(message)
     if not text and not photo_urls and not video_urls:
         link = message.get("link") or {}
         if link:
@@ -302,7 +223,7 @@ async def _handle_message(
             _, reply_to_tg_message_id = found
 
     try:
-        tg_message_id = await _relay_to_telegram(
+        tg_message_id = await channel_relay.relay_to_telegram(
             bot, shop["tg_chat_id"], relay_text, photos, videos,
             reply_to_message_id=reply_to_tg_message_id,
         )
@@ -345,6 +266,10 @@ async def relay_loop() -> None:
         except Exception as e:
             print(f"⚠️ Не удалось определить свой user_id в MAX (GET /me): {e}")
 
+        channel_chat_ids = await channel_relay.resolve_channel_sources(session)
+        for chan_chat_id, cfg in channel_chat_ids.items():
+            await channel_relay.backfill_channel(session, bot, chan_chat_id, cfg)
+
         while True:
             try:
                 data = await max_client.get_updates(session, MAX_BOT_TOKEN, marker)
@@ -365,6 +290,16 @@ async def relay_loop() -> None:
                     continue
 
                 chat_id = message.get("recipient", {}).get("chat_id")
+
+                channel_cfg = channel_chat_ids.get(chat_id)
+                if channel_cfg:
+                    try:
+                        await channel_relay.handle_channel_message(session, bot, channel_cfg, message, chat_id)
+                        print(f"✅ Пост канала «{channel_cfg['name']}» обработан")
+                    except Exception as e:
+                        print(f"⚠️ Ошибка обработки поста канала ({channel_cfg['name']}): {e}")
+                    continue
+
                 shop = RELAY_SHOPS.get(chat_id)
                 if not shop:
                     print(f"⚠️ Неизвестный MAX-чат: {chat_id}")

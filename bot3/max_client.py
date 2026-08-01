@@ -31,6 +31,41 @@ def extract_message(update: dict) -> dict | None:
     return update.get("message") or update.get("payload", {}).get("message")
 
 
+async def get_chat_by_link(session: aiohttp.ClientSession, token: str, link: str) -> dict:
+    """Резолвит канал/чат по публичной ссылке или юзернейму (например
+    "channel_adygid" из https://max.ru/channel_adygid) — чтобы не хардкодить
+    числовой chat_id в конфиге."""
+    async with session.get(
+        f"{API_URL}/chats/{link}",
+        headers={"Authorization": token},
+    ) as resp:
+        resp.raise_for_status()
+        return await resp.json()
+
+
+async def get_messages(
+    session: aiohttp.ClientSession,
+    token: str,
+    chat_id: int,
+    count: int = 100,
+    to: int | None = None,
+) -> dict:
+    """История сообщений чата/канала (новые сначала). Пагинация — через `to`
+    (метка времени самого старого уже полученного сообщения минус 1): MAX не
+    отдаёт marker для истории сообщений (в отличие от списка чатов)."""
+    params: dict = {"chat_id": chat_id, "count": count}
+    if to is not None:
+        params["to"] = to
+
+    async with session.get(
+        f"{API_URL}/messages",
+        params=params,
+        headers={"Authorization": token},
+    ) as resp:
+        resp.raise_for_status()
+        return await resp.json()
+
+
 async def download_attachment(session: aiohttp.ClientSession, token: str, url: str) -> bytes:
     async with session.get(url, headers={"Authorization": token}) as resp:
         resp.raise_for_status()

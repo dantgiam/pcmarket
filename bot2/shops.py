@@ -30,7 +30,7 @@ SHOPS = {
     -1003973787679: {
         "address": "📍 Наш адрес: Усть-Лабинск, ул. Октябрьская 105",
         "work_time": "🕒 Мы работаем: 10:00–19:00 каждый день!",
-        "max_link": "📱 Мы есть в MAX, [нажмите сюда](https://max.ru/join/0QISzsN7l3pOozTObbzM4OR9YEmvVjaUtuXq7i-Jolo) чтобы перейти в группу. \n 🖥 Так же есть сайт с адресами и группами других точек: https://polcenimarket.ru/",
+        "max_link": "📱 Мы есть в MAX, [нажмите сюда](https://max.ru/join/5Vo1w5KZaGoAnbRCoZRcShcjQif2Qz99iLQrSux6j0Y) чтобы перейти в группу. \n 🖥 Так же есть сайт с адресами и группами других точек: https://polcenimarket.ru/",
         "tg_link": "https://t.me/polcenimarket1",
     },
     -1003694773601: {
@@ -64,7 +64,7 @@ SHOPS = {
         "tg_link": "https://t.me/polcenimarkethanskaya",
     },
     -1004409128265: {
-        "address": "📍 Наш адрес: Краснодар, ул. Калинина 327",
+        "address": "📍 Наш адрес: Краснодар, ул. Калинина 327/2",
         "work_time": "🕒 Мы работаем: 10:00–21:00 каждый день!",
         "max_link": "📱 Мы есть в MAX, [нажмите сюда](https://max.ru/join/G2E9OErnlhV7TkNlf02X0qNfZf9-CoCjw_20r2zn6fo) чтобы перейти в группу. \n 🖥 Так же есть сайт с адресами и группами других точек: https://polcenimarket.ru/",
         "tg_link": "https://t.me/polcenimarketkras",

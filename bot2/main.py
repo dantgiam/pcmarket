@@ -17,6 +17,7 @@ from moderation import check_spam, ocr_image, TEST_NON_ADMIN_TAG
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "bot3"))
 import max_client
 import relay_state
+import channel_relay
 from relay_shops import RELAY_SHOPS
 
 # Обратная карта: tg_chat_id -> max_chat_id, для релея TG -> MAX
@@ -271,6 +272,37 @@ async def get_id(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(f"🆔 Chat ID: {update.effective_chat.id}")
 
 
+async def copy_channel_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Ручной запуск копирования постов MAX-канала в TG (см. bot3/channel_relay.py).
+    Обычно копирование уже идёт автоматически при старте bot3 — команда нужна,
+    чтобы прогнать его на лету (например, повторно после ошибки), не передёргивая
+    весь контейнер. Безопасно вызывать многократно: уже скопированные посты
+    пропускаются по max_mid."""
+    user = update.effective_user
+    if not user or user.id not in ADMIN_IDS:
+        return
+
+    if not MAX_BOT_TOKEN:
+        await update.message.reply_text("⚠️ MAX_BOT_TOKEN не задан")
+        return
+
+    await update.message.reply_text("⏳ Ищу канал и копирую посты в TG...")
+
+    async with aiohttp.ClientSession() as session:
+        resolved = await channel_relay.resolve_channel_sources(session)
+        if not resolved:
+            await update.message.reply_text(
+                "⚠️ Канал не найден или бот не администратор там (подробности в логах)."
+            )
+            return
+
+        total = 0
+        for chat_id, cfg in resolved.items():
+            total += await channel_relay.backfill_channel(session, context.bot, chat_id, cfg)
+
+    await update.message.reply_text(f"✅ Готово: обработано {total} постов канала.")
+
+
 async def relay_to_max(update: Update, context: ContextTypes.DEFAULT_TYPE, is_admin: bool) -> None:
     """Пересылает сообщение из TG-группы в связанный MAX-чат (bot3/relay_shops.py).
     Админов не подписываем, остальных — "TG, Имя: текст"."""
@@ -373,6 +405,7 @@ def main():
     app = ApplicationBuilder().token(TOKEN).build()
 
     app.add_handler(CommandHandler("id", get_id))
+    app.add_handler(CommandHandler("copy_channel", copy_channel_command))
     app.add_handler(CallbackQueryHandler(unban_callback, pattern=r"^unban:"))
     app.add_handler(MessageHandler(
         CONTENT_FILTER & filters.ChatType.GROUPS & filters.UpdateType.MESSAGE,

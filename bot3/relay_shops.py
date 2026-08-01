@@ -70,7 +70,7 @@ RELAY_SHOPS = {
         "vk_token_env": "VK_TOKEN_MAYKOP_STROITELEY",
     },
     -76202362090160: {
-        "name": "Краснодар, ул. Калинина 327",
+        "name": "Краснодар, ул. Калинина 327/2",
         "tg_chat_id": -1004409128265,
         "vk_group_id": 0,
         "vk_token_env": "VK_TOKEN_KRASNODAR_KALININA",
