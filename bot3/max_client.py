@@ -31,12 +31,11 @@ def extract_message(update: dict) -> dict | None:
     return update.get("message") or update.get("payload", {}).get("message")
 
 
-async def get_chat_by_link(session: aiohttp.ClientSession, token: str, link: str) -> dict:
-    """Резолвит канал/чат по публичной ссылке или юзернейму (например
-    "channel_adygid" из https://max.ru/channel_adygid) — чтобы не хардкодить
-    числовой chat_id в конфиге."""
+async def get_chat(session: aiohttp.ClientSession, token: str, chat_id: int) -> dict:
+    """Информация о чате/канале по числовому id (в т.ч. status — активен ли бот
+    в нём как участник)."""
     async with session.get(
-        f"{API_URL}/chats/{link}",
+        f"{API_URL}/chats/{chat_id}",
         headers={"Authorization": token},
     ) as resp:
         resp.raise_for_status()

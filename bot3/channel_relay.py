@@ -4,10 +4,11 @@
 # без VK (это собственный канал владельца, не чат с гостями), зато с
 # сохранением форматирования (жирный/курсив/цитаты/ссылки) и всех фото/видео.
 #
-# Ключ CHANNEL_SOURCES — публичная ссылка канала (часть после https://max.ru/),
-# а не числовой chat_id: id резолвится через GET /chats/{link} при старте.
-# Для этого бот должен быть добавлен администратором канала в MAX — иначе
-# GET /messages будет отдавать 403.
+# Ключ CHANNEL_SOURCES — числовой chat_id канала (как и в RELAY_SHOPS), а не
+# публичная ссылка: GET /chats/{chatLink} у MAX не резолвит некоторые каналы
+# по ссылке даже когда бот уже в них состоит (404), поэтому id надёжнее брать
+# напрямую — например, из ссылки вида https://web.max.ru/<chat_id>. Бот должен
+# быть добавлен администратором канала в MAX — иначе GET /messages отдаёт 403.
 #
 # Модуль используется и из bot3 (автоматически: бэкафилл истории при
 # старте + релей новых постов через /updates), и из bot2 (команда
@@ -26,7 +27,7 @@ import relay_state
 MAX_BOT_TOKEN = os.environ.get("MAX_BOT_TOKEN")
 
 CHANNEL_SOURCES = {
-    "channel_adygid": {
+    -73758710575792: {
         "tg_chat_id": -1004462241776,
         "name": "Канал Адыгид (MAX)",
     },
@@ -239,27 +240,27 @@ async def backfill_channel(session: aiohttp.ClientSession, bot: Bot, chat_id: in
 
 
 async def resolve_channel_sources(session: aiohttp.ClientSession) -> dict:
-    """Резолвит публичные ссылки каналов из CHANNEL_SOURCES в числовые
-    chat_id (чтобы не хардкодить id в конфиге)."""
+    """Проверяет, что бот действительно активный участник каждого канала из
+    CHANNEL_SOURCES (GET /chats/{chatId} по числовому id — надёжнее, чем поиск
+    по публичной ссылке). Возвращает {chat_id: cfg} только для доступных каналов."""
     resolved = {}
-    for link, cfg in CHANNEL_SOURCES.items():
+    for chat_id, cfg in CHANNEL_SOURCES.items():
         try:
-            chat = await max_client.get_chat_by_link(session, MAX_BOT_TOKEN, link)
+            chat = await max_client.get_chat(session, MAX_BOT_TOKEN, chat_id)
         except Exception as e:
-            print(f"⚠️ Не удалось найти канал по ссылке «{link}»: {e}")
+            print(f"⚠️ Не удалось получить канал «{cfg['name']}» (chat_id={chat_id}): {e}")
             continue
 
-        chat_id = chat.get("chat_id")
         status = chat.get("status")
         if status != "active":
             print(
-                f"⚠️ Канал «{link}» найден (chat_id={chat_id}), но бот не активный участник "
+                f"⚠️ Канал «{cfg['name']}» (chat_id={chat_id}) найден, но бот не активный участник "
                 f"(status={status}). Добавьте бота администратором канала в MAX, иначе посты "
                 "недоступны (403)."
             )
             continue
 
-        resolved[chat_id] = {**cfg, "link": link}
-        print(f"🔗 Канал «{cfg['name']}» ({link}) -> chat_id={chat_id}")
+        resolved[chat_id] = cfg
+        print(f"🔗 Канал «{cfg['name']}» (chat_id={chat_id}) доступен, статус={status}")
 
     return resolved
