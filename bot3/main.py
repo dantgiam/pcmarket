@@ -23,7 +23,7 @@ from auto_reply import (
     INVITE_KEYWORDS, OTHER_SHOP_TEXT, invite_text, is_relevant,
     is_blacklisted_link, CONFIRM_QUESTIONS,
 )
-from shops import SHOPS
+from shops import SHOPS, contains_own_link
 from moderation import check_spam, confirm_intent, ocr_image, TEST_NON_ADMIN_TAG
 
 MAX_BOT_TOKEN = os.environ.get("MAX_BOT_TOKEN")
@@ -102,9 +102,8 @@ async def _remove_max_message(
     chat_id: int,
     message: dict,
     sender_id,
-    ban: bool,
 ) -> None:
-    """Удаляет сообщение и (если ban=True) банит автора."""
+    """Удаляет сообщение. Бот никогда не банит — нарушение только удаляется."""
     message_id = message.get("body", {}).get("mid")
     if message_id:
         try:
@@ -112,14 +111,7 @@ async def _remove_max_message(
         except Exception as e:
             print(f"⚠️ Не удалось удалить сообщение в MAX-чате {chat_id}: {e}")
 
-    if ban and sender_id is not None:
-        try:
-            await max_client.ban_member(session, MAX_BOT_TOKEN, chat_id, sender_id)
-        except Exception as e:
-            print(f"⚠️ Не удалось забанить {sender_id} в MAX-чате {chat_id}: {e}")
-
-    label = "Забанен" if ban else "Удалено (без бана)"
-    print(f"🚫 {label} в MAX-чате {chat_id}: user_id={sender_id}")
+    print(f"🗑️ Удалено в MAX-чате {chat_id}: user_id={sender_id}")
 
 
 async def _handle_message(
@@ -160,16 +152,14 @@ async def _handle_message(
 
     # Модерация идёт ДО автоответа: иначе спам, в котором есть вопрос про
     # адрес/график, получал бы автоответ и уходил от проверки совсем.
-    if not is_admin:
-        # Явный текстовый спам (человек сам написал) — удаляем и баним.
-        # Реклама, найденная только на картинке через OCR, — точность ниже,
-        # поэтому только удаляем, без бана.
+    # Ссылка на одну из НАШИХ групп/сайт — не спам, даже если её кинул не
+    # админ (например, в ответ на просьбу другого участника добавить в чат).
+    if not is_admin and not contains_own_link(text):
         removed = False
 
         if text:
             if await check_spam(text) == "BAN":
-                # В тест-чате не баним, чтобы не залочить себя при тестах.
-                await _remove_max_message(session, chat_id, message, sender_id, ban=not is_test_chat)
+                await _remove_max_message(session, chat_id, message, sender_id)
                 removed = True
 
         if not removed and photos:
@@ -183,7 +173,7 @@ async def _handle_message(
             if ocr_chunks:
                 combined_text = "\n".join([text] + ocr_chunks) if text else "\n".join(ocr_chunks)
                 if await check_spam(combined_text) == "BAN":
-                    await _remove_max_message(session, chat_id, message, sender_id, ban=False)
+                    await _remove_max_message(session, chat_id, message, sender_id)
                     removed = True
 
         if removed:

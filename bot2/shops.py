@@ -2,6 +2,8 @@
 # Единый источник данных о магазинах.
 # Используется в auto_reply.py (автоответы про адрес / график / MAX).
 
+import re
+
 SHOPS = {
     -1003450185997: {
         "address": "📍 Наш адрес: Майкоп, ул. Строителей 8Б (район железного рынка)",
@@ -76,3 +78,21 @@ SHOPS = {
         "tg_link": "https://t.me/polcenimarketveliko",
     },
 }
+
+# Собственные ссылки сети (чаты TG/MAX любого магазина + сайт). Модерация не
+# должна удалять сообщение только за то, что участник поделился ссылкой на
+# одну из НАШИХ групп (например, в ответ на просьбу другого участника) —
+# в отличие от рекламы сторонних каналов/групп.
+_OWN_LINKS = {shop["tg_link"] for shop in SHOPS.values()} | {"https://polcenimarket.ru/"} | {
+    match.group(0)
+    for shop in SHOPS.values()
+    for match in [re.search(r"https://max\.ru/join/\S+?(?=[)\s]|$)", shop["max_link"])]
+    if match
+}
+
+
+def contains_own_link(text: str) -> bool:
+    """True, если в тексте есть ссылка на один из наших чатов/сайт."""
+    if not text:
+        return False
+    return any(link in text for link in _OWN_LINKS)

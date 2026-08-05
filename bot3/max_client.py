@@ -139,15 +139,6 @@ async def delete_message(session: aiohttp.ClientSession, token: str, message_id:
         resp.raise_for_status()
 
 
-async def ban_member(session: aiohttp.ClientSession, token: str, chat_id: int, user_id: int) -> None:
-    async with session.delete(
-        f"{API_URL}/chats/{chat_id}/members",
-        params={"user_id": user_id, "block": "true"},
-        headers={"Authorization": token},
-    ) as resp:
-        resp.raise_for_status()
-
-
 async def get_admin_ids(session: aiohttp.ClientSession, token: str, chat_id: int) -> set:
     """id админов и владельца чата. При ошибке — пустое множество (VK-релей просто не сработает)."""
     try:
