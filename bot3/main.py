@@ -257,8 +257,6 @@ async def relay_loop() -> None:
             print(f"⚠️ Не удалось определить свой user_id в MAX (GET /me): {e}")
 
         channel_chat_ids = await channel_relay.resolve_channel_sources(session)
-        for chan_chat_id, cfg in channel_chat_ids.items():
-            await channel_relay.backfill_channel(session, bot, chan_chat_id, cfg)
 
         while True:
             try:
