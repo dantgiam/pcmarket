@@ -20,7 +20,7 @@ SHOPS = {
     -1003974367383: {
         "address": "📍 Наш адрес: Тульский, ул. Октябрьская 24в",
         "work_time": "🕒 Мы работаем: 10:00–19:00 каждый день!",
-        "max_link": "📱 Мы есть в MAX, [нажмите сюда](https://max.ru/join/Z_wDekAQYLNppAF0gLx00V2JfaK6S7ljY_pjp-RZH_I) чтобы перейти в группу. \n 🖥 Так же есть сайт с адресами и группами других точек: https://polcenimarket.ru/",
+        "max_link": "📱 Мы есть в MAX, [нажмите сюда](https://max.ru/join/lmh-4y6OUJs3oPywN225Hq2uXW66nPcSX56gRBsFHKo) чтобы перейти в группу. \n 🖥 Так же есть сайт с адресами и группами других точек: https://polcenimarket.ru/",
         "tg_link": "https://t.me/polcenimarkettulskiy",
     },
     -1003840431977: {
