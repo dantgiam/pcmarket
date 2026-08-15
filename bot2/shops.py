@@ -5,15 +5,6 @@
 import re
 from datetime import date
 
-# Магазины, которые ещё не открылись и в чьи группы бота пока не добавили:
-# chat_id группы неизвестен, а строковый ключ с настоящим (числовым) chat_id
-# никогда не совпадёт — до подстановки автоответы там просто не работают,
-# ничего не ломается. Как узнать id: добавить бота в группу администратором и
-# отправить в ней /id. Ссылки на эти чаты уже считаются нашими (см. _OWN_LINKS
-# ниже), поэтому модерация не удаляет сообщения, в которых ими делятся.
-PENDING_KRASNODAR_KUNIKOVA = "pending:krasnodar-kunikova"
-PENDING_TBILISSKAYA = "pending:tbilisskaya"
-
 SHOPS = {
     -1003450185997: {
         "address": "📍 Наш адрес: Майкоп, ул. Строителей 8Б (район железного рынка)",
@@ -87,14 +78,14 @@ SHOPS = {
         "max_link": "📱 Мы есть в MAX, [нажмите сюда](https://max.ru/join/mNnm6zV6jPYFCPRF7MGnF-x0SzoN3vdM9-yQyqXgMDY) чтобы перейти в группу. \n 🖥 Так же есть сайт с адресами и группами других точек: https://polcenimarket.ru/",
         "tg_link": "https://t.me/polcenimarketveliko",
     },
-    PENDING_TBILISSKAYA: {
+    -1004431129514: {
         "address": "📍 Наш адрес: Тбилисская, ул. Октябрьская 173",
         "work_time": "🕒 Мы работаем: 10:00–19:00 каждый день!",
         "opens_at": date(2026, 8, 21),
         "max_link": "📱 Мы есть в MAX, [нажмите сюда](https://max.ru/join/-Vv-K8UrblWK087wVGkXSjOJICWZtwDS-KpxlkGOgvk) чтобы перейти в группу. \n 🖥 Так же есть сайт с адресами и группами других точек: https://polcenimarket.ru/",
         "tg_link": "https://t.me/polcenimarkettbiliskaya",
     },
-    PENDING_KRASNODAR_KUNIKOVA: {
+    -1003921192217: {
         "address": "📍 Наш адрес: Краснодар, ул. Цезаря Куникова 24к1",
         "work_time": "🕒 Мы работаем: 10:00–20:00 каждый день!",
         "opens_at": date(2026, 8, 28),
