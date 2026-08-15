@@ -3,6 +3,16 @@
 # Используется в auto_reply.py (автоответы про адрес / график / MAX).
 
 import re
+from datetime import date
+
+# Магазины, которые ещё не открылись и в чьи группы бота пока не добавили:
+# chat_id группы неизвестен, а строковый ключ с настоящим (числовым) chat_id
+# никогда не совпадёт — до подстановки автоответы там просто не работают,
+# ничего не ломается. Как узнать id: добавить бота в группу администратором и
+# отправить в ней /id. Ссылки на эти чаты уже считаются нашими (см. _OWN_LINKS
+# ниже), поэтому модерация не удаляет сообщения, в которых ими делятся.
+PENDING_KRASNODAR_KUNIKOVA = "pending:krasnodar-kunikova"
+PENDING_TBILISSKAYA = "pending:tbilisskaya"
 
 SHOPS = {
     -1003450185997: {
@@ -77,7 +87,45 @@ SHOPS = {
         "max_link": "📱 Мы есть в MAX, [нажмите сюда](https://max.ru/join/mNnm6zV6jPYFCPRF7MGnF-x0SzoN3vdM9-yQyqXgMDY) чтобы перейти в группу. \n 🖥 Так же есть сайт с адресами и группами других точек: https://polcenimarket.ru/",
         "tg_link": "https://t.me/polcenimarketveliko",
     },
+    PENDING_TBILISSKAYA: {
+        "address": "📍 Наш адрес: Тбилисская, ул. Октябрьская 173",
+        "work_time": "🕒 Мы работаем: 10:00–19:00 каждый день!",
+        "opens_at": date(2026, 8, 21),
+        "max_link": "📱 Мы есть в MAX, [нажмите сюда](https://max.ru/join/-Vv-K8UrblWK087wVGkXSjOJICWZtwDS-KpxlkGOgvk) чтобы перейти в группу. \n 🖥 Так же есть сайт с адресами и группами других точек: https://polcenimarket.ru/",
+        "tg_link": "https://t.me/polcenimarkettbiliskaya",
+    },
+    PENDING_KRASNODAR_KUNIKOVA: {
+        "address": "📍 Наш адрес: Краснодар, ул. Цезаря Куникова 24к1",
+        "work_time": "🕒 Мы работаем: 10:00–20:00 каждый день!",
+        "opens_at": date(2026, 8, 28),
+        "max_link": "📱 Мы есть в MAX, [нажмите сюда](https://max.ru/join/dh7qGkK2s-VSLMJ9zPvyyrEaps_7JMNaIWem2wPyPFA) чтобы перейти в группу. \n 🖥 Так же есть сайт с адресами и группами других точек: https://polcenimarket.ru/",
+        "tg_link": "https://t.me/polcenimarketkrasnodar3",
+    },
 }
+
+# Месяцы в родительном падеже: "открываемся 21 августа".
+_MONTHS = (
+    "января", "февраля", "марта", "апреля", "мая", "июня",
+    "июля", "августа", "сентября", "октября", "ноября", "декабря",
+)
+
+
+def opening_text(shop: dict) -> str | None:
+    """Фраза про дату открытия — пока магазин ещё не открылся (ключ opens_at).
+    После даты открытия возвращает None, и магазин отвечает как обычный:
+    убирать opens_at руками не нужно."""
+    opens_at = shop.get("opens_at")
+    if not opens_at or opens_at <= date.today():
+        return None
+    return f"🎉 Мы открываемся {opens_at.day} {_MONTHS[opens_at.month - 1]}!"
+
+
+def work_time_text(shop: dict) -> str:
+    """График работы. У ещё не открывшегося магазина — вместе с датой открытия,
+    иначе ответ «мы работаем с 10:00» выглядит так, будто он уже работает."""
+    opening = opening_text(shop)
+    return f"{opening}\n{shop['work_time']}" if opening else shop["work_time"]
+
 
 # Собственные ссылки сети (чаты TG/MAX любого магазина + сайт). Модерация не
 # должна удалять сообщение только за то, что участник поделился ссылкой на

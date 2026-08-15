@@ -7,6 +7,18 @@
 #     (Управление группой -> Работа с API -> Ключи доступа, права wall+photos),
 #     саму переменную нужно завести в настройках Railway (Variables).
 
+from shops import PENDING_KRASNODAR_KUNIKOVA, PENDING_TBILISSKAYA
+
+# Новые магазины, в чьи группы бота ещё не добавили: chat_id MAX-чата и парного
+# TG-чата неизвестны. Строковый ключ-заглушка с настоящим (числовым) chat_id
+# никогда не совпадёт, поэтому до подстановки релей для них просто не работает.
+# Как узнать id MAX-чата: добавить бота в группу — при первом же сообщении bot3
+# напишет в лог «⚠️ Неизвестный MAX-чат: <id>»; id TG-чата показывает команда
+# /id в самой группе. tg_chat_id здесь — те же заглушки, что и ключи в
+# bot2/shops.py: по нему берутся тексты автоответов, значения обязаны совпадать.
+PENDING_MAX_KRASNODAR_KUNIKOVA = "pending-max:krasnodar-kunikova"
+PENDING_MAX_TBILISSKAYA = "pending-max:tbilisskaya"
+
 RELAY_SHOPS = {
     -70930948336178: {
         "name": "Майкоп, ул. Строителей 8Б",
@@ -80,6 +92,18 @@ RELAY_SHOPS = {
         "tg_chat_id": -1003893903704,
         "vk_group_id": 0,
         "vk_token_env": "VK_TOKEN_VELIKOVECHNOE",
+    },
+    PENDING_MAX_TBILISSKAYA: {
+        "name": "Тбилисская",
+        "tg_chat_id": PENDING_TBILISSKAYA,
+        "vk_group_id": 0,
+        "vk_token_env": "VK_TOKEN_TBILISSKAYA",
+    },
+    PENDING_MAX_KRASNODAR_KUNIKOVA: {
+        "name": "Краснодар, ул. Цезаря Куникова 24к1",
+        "tg_chat_id": PENDING_KRASNODAR_KUNIKOVA,
+        "vk_group_id": 0,
+        "vk_token_env": "VK_TOKEN_KRASNODAR_KUNIKOVA",
     },
     # Тестовый чат: модерация/OCR работают как обычно, но никто (в т.ч.
     # админ) не считается админом — см. TEST_CHAT_IDS ниже. tg_chat_id=0 →

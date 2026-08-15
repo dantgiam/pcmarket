@@ -3,12 +3,13 @@ import string
 from rapidfuzz import fuzz
 from telegram import Update
 from telegram.ext import ContextTypes
-from shops import SHOPS
+from shops import SHOPS, opening_text, work_time_text
 from moderation import confirm_intent
 
 CONFIRM_QUESTIONS = {
     "address": "Хочет ли пользователь узнать адрес/местоположение именно ЭТОГО магазина (того, где идёт переписка), а не другого магазина сети?",
     "work_time": "Хочет ли пользователь узнать график/часы/время работы магазина?",
+    "opening": "Спрашивает ли пользователь, когда откроется этот магазин (дата открытия), или открылся ли он уже?",
     "max_link": "Хочет ли пользователь узнать, есть ли этот магазин в мессенджере MAX?",
     "other_shop": "Хочет ли пользователь узнать про другой магазин сети (адрес, ссылку, чат), а не про текущий?",
     "tg_link": "Хочет ли пользователь получить ссылку на Telegram (тг) этого магазина или узнать, есть ли у них Telegram?",
@@ -27,6 +28,14 @@ WORK_KEYWORDS = [
     "время работы", "работаете",
     "до скольки", "рабочий день",
     "график работы"
+]
+
+# Вопросы про дату открытия — актуальны только для магазинов, которые ещё не
+# открылись (ключ opens_at в shops.py); у остальных категория не проверяется.
+OPENING_KEYWORDS = [
+    "когда откроетесь", "когда открытие", "когда открываетесь",
+    "когда откроете", "дата открытия", "вы уже открылись",
+    "уже открылись", "уже работаете", "скоро открытие", "открытие когда",
 ]
 
 MAX_KEYWORDS = [
@@ -147,9 +156,19 @@ async def handle_auto_reply(update: Update, context: ContextTypes.DEFAULT_TYPE) 
         )
         return True
 
+    # Проверяем до графика работы: «вы уже работаете?» — это про открытие,
+    # а не про часы, и попало бы в WORK_KEYWORDS.
+    opening = opening_text(shop)
+    if opening and is_relevant(text, OPENING_KEYWORDS) and await confirm_intent(text, CONFIRM_QUESTIONS["opening"]):
+        await update.message.reply_text(
+            opening,
+            reply_to_message_id=update.message.message_id
+        )
+        return True
+
     if is_relevant(text, WORK_KEYWORDS) and await confirm_intent(text, CONFIRM_QUESTIONS["work_time"]):
         await update.message.reply_text(
-            shop["work_time"],
+            work_time_text(shop),
             reply_to_message_id=update.message.message_id
         )
         return True

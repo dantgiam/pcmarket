@@ -20,10 +20,10 @@ import channel_relay
 from relay_shops import RELAY_SHOPS, TEST_CHAT_IDS
 from auto_reply import (
     ADDRESS_KEYWORDS, WORK_KEYWORDS, OTHER_SHOP_KEYWORDS, TG_LINK_KEYWORDS,
-    INVITE_KEYWORDS, OTHER_SHOP_TEXT, invite_text, is_relevant,
+    INVITE_KEYWORDS, OPENING_KEYWORDS, OTHER_SHOP_TEXT, invite_text, is_relevant,
     is_blacklisted_link, CONFIRM_QUESTIONS,
 )
-from shops import SHOPS, contains_own_link
+from shops import SHOPS, contains_own_link, opening_text, work_time_text
 from moderation import check_spam, confirm_intent, ocr_image, TEST_NON_ADMIN_TAG
 
 MAX_BOT_TOKEN = os.environ.get("MAX_BOT_TOKEN")
@@ -82,13 +82,21 @@ async def _max_auto_reply_text(text: str, tg_chat_id: int) -> str | None:
     # Приглашение шлём в MAX-чат — человек уже здесь, добавить хочет сюда же.
     invite_link = _max_join_url(shop_content) or shop_content["tg_link"]
 
-    for category, keywords, reply in (
+    categories = [
         ("other_shop", OTHER_SHOP_KEYWORDS, OTHER_SHOP_TEXT),
         ("invite", INVITE_KEYWORDS, invite_text(invite_link)),
         ("address", ADDRESS_KEYWORDS, shop_content["address"]),
-        ("work_time", WORK_KEYWORDS, shop_content["work_time"]),
+        ("work_time", WORK_KEYWORDS, work_time_text(shop_content)),
         ("tg_link", TG_LINK_KEYWORDS, f"📱 Наш чат в Telegram: {shop_content['tg_link']}"),
-    ):
+    ]
+
+    # Магазин ещё не открылся — проверяем вопрос про дату открытия до графика
+    # работы: «вы уже работаете?» — это про открытие, а не про часы.
+    opening = opening_text(shop_content)
+    if opening:
+        categories.insert(3, ("opening", OPENING_KEYWORDS, opening))
+
+    for category, keywords, reply in categories:
         if not is_relevant(text, keywords):
             continue
         if await confirm_intent(text, CONFIRM_QUESTIONS[category]):
