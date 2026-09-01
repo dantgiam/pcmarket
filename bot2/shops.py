@@ -68,7 +68,7 @@ SHOPS = {
     },
     -1004409128265: {
         "address": "📍 Наш адрес: Краснодар, ул. Калинина 327/2",
-        "work_time": "🕒 Мы работаем: 10:00–21:00 каждый день!",
+        "work_time": "🕒 Мы работаем: 09:00–20:00 каждый день!",
         "max_link": "📱 Мы есть в MAX, [нажмите сюда](https://max.ru/join/G2E9OErnlhV7TkNlf02X0qNfZf9-CoCjw_20r2zn6fo) чтобы перейти в группу. \n 🖥 Так же есть сайт с адресами и группами других точек: https://polcenimarket.ru/",
         "tg_link": "https://t.me/polcenimarketkras",
     },
