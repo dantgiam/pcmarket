@@ -40,6 +40,17 @@ INTENT_PROMPT = """Ты — маршрутизатор запросов к ба�
 - "date_from", "date_to": "YYYY-MM-DD" или null, если период назван точно
 - "query": строка для поиска по тексту, только для intent="search"
 - "limit": сколько записей показать, число или null
+- "ids": список номеров конкретных заметок, если владелец на них ссылается
+  (например «а где сама ссылка» после ответа, где была заметка №2 → [2]).
+  Номера бери из предыдущего ответа ассистента, если он приложен.
+- "action": "drop" | "done" | "keep" | null — заполняй ТОЛЬКО если владелец
+  прямо просит что-то сделать с заметками: «удали», «выкинь» → "drop";
+  «сделано», «готово» → "done"; «верни в работу» → "keep". Во всех
+  остальных случаях null.
+
+Если приложен предыдущий ответ ассистента, новый запрос почти всегда
+относится к нему: уточнение, просьба показать подробности или действие
+над упомянутыми там заметками.
 
 Сегодня {today}.
 
@@ -53,12 +64,20 @@ FORMAT_PROMPT = """Ты — личный ассистент по чату зам
 - начинай сразу с сути, без приветствий и без «конечно»;
 - группируй по проектам или по типу, если записей много;
 - каждую заметку выводи одной строкой, начиная с её номера в формате «№12»;
+- ССЫЛКИ ПРИВОДИ ЦЕЛИКОМ. Если у заметки заполнено поле "links" — вставь
+  адрес полностью, как есть. Никогда не заменяй ссылку описанием вроде
+  «ссылка на статью» и не обрезай её: владельцу нужен сам адрес, чтобы
+  по нему перейти;
 - сохраняй формулировки владельца, не переписывай его мысли своими словами
-  до неузнаваемости;
+  до неузнаваемости; если он просит подробности — бери их из поля "text",
+  а не из короткого "summary";
 - если записей нет — так и скажи одной строкой, без придумывания;
 - в конце, если уместно, добавь одну строку вывода или предложения;
 - никакого markdown, только обычный текст и переносы строк;
-- уложись в 1500 символов."""
+- уложись в 1500 символов.
+
+Если приложен предыдущий ответ ассистента — владелец продолжает тот же
+разговор, и отвечать надо именно на его уточнение, а не начинать заново."""
 
 
 def is_command(text):
@@ -79,14 +98,25 @@ def _ts(date_obj, end=False):
     return dt.datetime.combine(date_obj, time_part, tzinfo=TZ).timestamp()
 
 
-async def _intent(request, session=None):
+async def _intent(request, context_text=None, session=None):
     system = INTENT_PROMPT.format(
         projects=" | ".join(f'"{p}"' for p in PROJECTS),
         types=" | ".join(f'"{t}"' for t in TYPES),
         today=_today().isoformat(),
     )
-    result = await chat_json(system, request, session=session, max_tokens=300)
+    result = await chat_json(system, _with_context(request, context_text),
+                             session=session, max_tokens=300)
     return result if isinstance(result, dict) else None
+
+
+def _with_context(request, context_text):
+    """Реплай на сообщение бота — продолжение разговора. Без предыдущего
+    ответа фраза «а где сама ссылка» не значит ничего, и раньше она
+    улетала в общий поиск и возвращала справку."""
+    if not context_text:
+        return request
+    return (f"Предыдущий ответ ассистента:\n{context_text[:2000]}\n\n"
+            f"Новый запрос владельца:\n{request}")
 
 
 def _resolve_period(intent):
@@ -120,7 +150,26 @@ def _resolve_status(value):
     return value
 
 
+def _wanted_ids(intent):
+    raw = intent.get("ids")
+    if not isinstance(raw, (list, tuple)):
+        return []
+    ids = []
+    for value in raw[:20]:
+        try:
+            ids.append(int(value))
+        except (TypeError, ValueError):
+            continue
+    return ids
+
+
 def _fetch(intent, request):
+    # Владелец сослался на конкретные номера («а где сама ссылка» про №2) —
+    # тогда никакие фильтры не нужны, берём именно эти заметки.
+    ids = _wanted_ids(intent)
+    if ids:
+        return intent.get("intent") or "list", db.get_notes(ids)
+
     kind = intent.get("intent") or "list"
     project = intent.get("project")
     note_type = intent.get("type")
@@ -153,18 +202,34 @@ def _fetch(intent, request):
     )
 
 
+LINK_RE = re.compile(r"https?://\S+")
+
+
+def links_of(row):
+    """Ссылки из исходного текста заметки. Раньше в модель уходил только
+    пересказ, и адрес терялся: бот отвечал «ссылка на статью о смотровых
+    площадках», а самой ссылки в ответе не было."""
+    return LINK_RE.findall(row["text"] or "")[:5]
+
+
 def _rows_payload(rows):
     payload = []
     for row in rows:
-        payload.append({
+        raw = " ".join((row["text"] or "").split())
+        item = {
             "id": row["id"],
             "date": dt.datetime.fromtimestamp(row["date"], TZ).strftime("%d.%m.%Y"),
             "type": type_title(row["type"]),
             "project": project_title(row["project"]),
             "status": status_title(row["status"]),
-            "summary": row["summary"] or " ".join((row["text"] or "").split())[:120],
+            "summary": row["summary"] or raw[:120],
+            "text": raw[:400],
             "due": row["due"],
-        })
+        }
+        links = links_of(row)
+        if links:
+            item["links"] = links
+        payload.append(item)
     return payload
 
 
@@ -183,10 +248,38 @@ def _plain_answer(kind, rows):
         lines.append(f"\n{project_title(project)}:")
         for row in items[:20]:
             when = dt.datetime.fromtimestamp(row["date"], TZ).strftime("%d.%m")
-            summary = row["summary"] or " ".join((row["text"] or "").split())[:100]
             due = f" (до {row['due']})" if row["due"] else ""
-            lines.append(f"  №{row['id']} [{when}] {type_title(row['type'])}: {summary}{due}")
+            lines.append(f"  №{row['id']} [{when}] {type_title(row['type'])}: {_short(row)}{due}")
+            for link in links_of(row):
+                lines.append(f"    {link}")
     return "\n".join(lines)
+
+
+def _short(row, limit=100):
+    return row["summary"] or " ".join((row["text"] or "").split())[:limit] or "(без текста)"
+
+
+# Действия над заметками. Статусы обратимы — ничего не удаляется навсегда.
+ACTIONS = {"drop": "dropped", "done": "done", "keep": "kept"}
+ACTION_TITLES = {"dropped": "выкинул", "done": "отметил сделанным", "kept": "вернул в работу"}
+
+
+def _apply_action(action, rows):
+    status = ACTIONS[action]
+
+    # Массовая правка по расплывчатому запросу — верный способ потерять
+    # нужное, поэтому просим уточнить вместо того, чтобы менять всё подряд.
+    if len(rows) > 10:
+        return (f"Под этот запрос попадает {len(rows)} заметок — слишком много, "
+                "чтобы менять их разом. Назови номера или сузь запрос.", rows, None)
+
+    ids = []
+    for row in rows:
+        db.set_status(row["id"], status)
+        ids.append(row["id"])
+
+    listed = "\n".join(f"  №{row['id']} {_short(row)}" for row in rows)
+    return (f"Готово, {ACTION_TITLES[status]}:\n{listed}", [], {"status": status, "ids": ids})
 
 
 def help_text():
@@ -204,40 +297,59 @@ def help_text():
         "  бро, что я забросил\n"
         "  бро, найди про пещеру возле Каменномостского\n"
         "  бро, цитаты за август\n\n"
+        "Можно просто ответить реплаем на мой ответ — я продолжу тот же\n"
+        "разговор: «а где сама ссылка», «покажи подробнее», «удали эту запись».\n\n"
+        "Мои сообщения удаляются через полчаса, чтобы не засорять чат.\n"
+        "Поставь сердечко — и сообщение останется навсегда.\n\n"
         "Команды: /stats — состав базы, /rules — мои выведенные правила."
     )
 
 
-async def answer(request_text, *, session=None):
-    """Возвращает (текст ответа, строки заметок) — строки нужны, чтобы
-    навесить на ответ кнопки «сделано / выкинуть»."""
+async def answer(request_text, *, context_text=None, session=None):
+    """Возвращает (текст ответа, строки для кнопок, результат действия).
+
+    context_text — предыдущий ответ бота, если владелец ответил на него
+    реплаем: без этого продолжение разговора не понять.
+    Третий элемент не None, когда запрос менял статусы: по нему main.py
+    обновляет реакции на самих заметках."""
     request = strip_prefix(request_text)
     if not request:
-        return help_text(), []
+        return help_text(), [], None
 
-    intent = await _intent(request, session=session)
+    intent = await _intent(request, context_text=context_text, session=session)
 
     if intent is None:
         # Модель недоступна — не отказываем, а ищем по словам запроса.
         rows = db.search_notes(request, limit=40)
-        return _plain_answer("search", rows), rows
+        return _plain_answer("search", rows), rows, None
 
-    if intent.get("intent") == "help":
-        return help_text(), []
+    ids = _wanted_ids(intent)
+
+    if intent.get("intent") == "help" and not ids:
+        return help_text(), [], None
 
     if intent.get("intent") == "stats":
-        return stats_text(), []
+        return stats_text(), [], None
 
     kind, rows = _fetch(intent, request)
 
+    action = intent.get("action")
+    if action in ACTIONS:
+        if not rows:
+            return "Не понял, к каким заметкам это относится.", [], None
+        return _apply_action(action, rows)
+
     if not rows:
-        return "Ничего не нашёл по этому запросу.", []
+        return "Ничего не нашёл по этому запросу.", [], None
+
+    user = "Запрос владельца: " + request
+    if context_text:
+        user = f"Предыдущий ответ ассистента:\n{context_text[:2000]}\n\n" + user
+    user += "\n\nЗаметки:\n" + json.dumps(_rows_payload(rows), ensure_ascii=False, indent=None)
 
     formatted = await chat_json(
         FORMAT_PROMPT + '\n\nВерни JSON: {"answer": "текст ответа"}',
-        "Запрос владельца: " + request + "\n\nЗаметки:\n"
-        + json.dumps(_rows_payload(rows), ensure_ascii=False, indent=None),
-        session=session, max_tokens=1500, temperature=0.3,
+        user, session=session, max_tokens=1500, temperature=0.3,
     )
 
     text = None
@@ -247,7 +359,7 @@ async def answer(request_text, *, session=None):
     if not text:
         text = _plain_answer(kind, rows)
 
-    return text[:MAX_ANSWER], rows
+    return text[:MAX_ANSWER], rows, None
 
 
 def stats_text():

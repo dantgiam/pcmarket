@@ -13,6 +13,7 @@ import datetime as dt
 import json
 import logging
 import os
+import time
 
 from telegram import (
     InlineKeyboardButton, InlineKeyboardMarkup, ReactionTypeEmoji, Update,
@@ -21,7 +22,7 @@ from telegram.constants import ChatAction
 from telegram.error import Conflict, TelegramError
 from telegram.ext import (
     Application, CallbackQueryHandler, CommandHandler, ContextTypes,
-    MessageHandler, filters,
+    MessageHandler, MessageReactionHandler, filters,
 )
 
 import classify
@@ -31,7 +32,8 @@ import digest
 import import_history
 import ocr
 from config import (
-    BOT_TOKEN, DAILY_ENABLED, DAILY_HOUR, NOTES_CHAT_ID, OWNER_ID,
+    AUTODELETE_ENABLED, AUTODELETE_MINUTES, BOT_TOKEN, DAILY_ENABLED,
+    DAILY_HOUR, KEEP_REACTION, NOTES_CHAT_ID, OWNER_ID, plain_emoji,
     REACTION_DONE, REACTION_PROCESSING, REACTION_UNKNOWN, TZ,
     WEEKLY_ENABLED, WEEKLY_HOUR, WEEKLY_WEEKDAY,
     project_title, type_reaction, type_title,
@@ -63,7 +65,7 @@ async def _setup_hint(update):
     )
     log.warning("Не настроен: owner=%s chat=%s", user.id if user else None, chat.id if chat else None)
     try:
-        await update.effective_message.reply_text(text)
+        await _reply(update.effective_message, text)
     except TelegramError as e:
         log.warning("Не смог ответить подсказкой: %s", e)
 
@@ -79,6 +81,29 @@ def _allowed(update):
     if NOTES_CHAT_ID and (not chat or chat.id != NOTES_CHAT_ID):
         return False
     return True
+
+
+# ---------------- Отправка с самоочисткой ----------------
+# Всё, что бот пишет сам, попадает в bot_messages и удаляется через
+# AUTODELETE_MINUTES. Пометил сердечком — сообщение остаётся навсегда.
+# Поэтому любая отправка идёт только через эти две обёртки: если завести
+# отдельный reply_text мимо них, сообщение останется в чате навсегда.
+
+async def _track(message):
+    if message is not None and AUTODELETE_ENABLED:
+        try:
+            db.track_bot_message(message.chat_id, message.message_id)
+        except Exception as e:
+            log.warning("Не записал своё сообщение для самоочистки: %s", e)
+    return message
+
+
+async def _reply(message, text, **kwargs):
+    return await _track(await message.reply_text(text, **kwargs))
+
+
+async def _send(bot, chat_id, text, **kwargs):
+    return await _track(await bot.send_message(chat_id=chat_id, text=text, **kwargs))
 
 
 # ---------------- Реакции ----------------
@@ -111,6 +136,53 @@ async def react(bot, chat_id, message_id, emoji):
         log.warning("Реакция %s не поставилась: %s", emoji, e)
         if _reaction_failures >= _REACTION_GIVE_UP:
             log.error("Реакции отключены после %d ошибок подряд", _REACTION_GIVE_UP)
+
+
+# ---------------- Сердечко отменяет удаление ----------------
+
+async def on_reaction(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Владелец поставил или снял реакцию. Интересует только сердечко на
+    сообщении самого бота: оно значит «оставить навсегда». Реакции на обычные
+    заметки сюда не долетают — для них в bot_messages просто нет строки."""
+    event = update.message_reaction
+    if event is None:
+        return
+    if OWNER_ID and (event.user is None or event.user.id != OWNER_ID):
+        return
+    if NOTES_CHAT_ID and event.chat.id != NOTES_CHAT_ID:
+        return
+
+    emojis = {plain_emoji(getattr(r, "emoji", None)) for r in event.new_reaction}
+    keep = plain_emoji(KEEP_REACTION) in emojis
+
+    if db.set_bot_message_keep(event.chat.id, event.message_id, keep):
+        log.info("Своё сообщение %s: %s", event.message_id,
+                 "оставляю навсегда" if keep else "снова в очереди на удаление")
+
+
+async def _sweep(application):
+    """Убирает свои сообщения, прожившие дольше положенного и не отмеченные
+    сердечком. Ошибку удаления гасим: сообщение могли стереть вручную, а
+    старше 48 часов Telegram удалять и не даёт — в обоих случаях просто
+    забываем о нём, чтобы не пытаться вечно."""
+    if not AUTODELETE_ENABLED:
+        return
+
+    rows = db.expired_bot_messages(time.time() - AUTODELETE_MINUTES * 60)
+    if not rows:
+        return
+
+    removed = 0
+    for row in rows:
+        try:
+            await application.bot.delete_message(row["chat_id"], row["message_id"])
+            removed += 1
+        except TelegramError as e:
+            log.debug("Не удалил своё сообщение %s: %s", row["message_id"], e)
+        db.forget_bot_message(row["chat_id"], row["message_id"])
+        await asyncio.sleep(0.2)  # чтобы не упереться во флуд-лимит
+
+    log.info("Самоочистка: удалено %d из %d", removed, len(rows))
 
 
 # ---------------- Разбор сообщения ----------------
@@ -217,7 +289,7 @@ async def _offer_import(update, context):
     document = message.document
 
     if document.file_size and document.file_size > MAX_EXPORT_BYTES:
-        await message.reply_text(
+        await _reply(message, 
             f"Файл {document.file_size // 1024 // 1024} МБ — Telegram не даёт ботам скачивать "
             "больше 20 МБ. Выгрузи экспорт без медиа или запусти импорт с компьютера:\n"
             "python import_history.py result.json"
@@ -234,13 +306,13 @@ async def _offer_import(update, context):
             export = json.load(f)
     except Exception as e:
         log.warning("Экспорт не прочитался: %s: %s", type(e).__name__, e)
-        await message.reply_text(f"Не смог прочитать файл: {type(e).__name__}. Нужен JSON-экспорт из Telegram Desktop.")
+        await _reply(message, f"Не смог прочитать файл: {type(e).__name__}. Нужен JSON-экспорт из Telegram Desktop.")
         await react(context.bot, message.chat_id, message.message_id, REACTION_UNKNOWN)
         return
 
     if not isinstance(export, dict) or "messages" not in export:
         os.remove(path)
-        await message.reply_text(
+        await _reply(message, 
             "Это не похоже на экспорт чата. Нужен result.json из Telegram Desktop: "
             "Настройки → Экспорт данных, формат JSON."
         )
@@ -253,7 +325,7 @@ async def _offer_import(update, context):
     if chat_id != NOTES_CHAT_ID:
         log.warning("Экспорт из другого чата: %s (текущий %s)", chat_id, NOTES_CHAT_ID)
 
-    await message.reply_text(
+    await _reply(message, 
         f"Экспорт «{export.get('name')}»: {total} сообщений к разбору.\n"
         f"Уже в базе: {db.stats()['total']}.\n\n"
         "Заливаю в базу и прогоняю через модель? Уже разобранное второй раз не пойдёт.",
@@ -270,7 +342,7 @@ async def _run_import(application, path, chat_id, chat_to_report):
         _, added, skipped = await asyncio.to_thread(
             import_history.load_into_db, path, chat_id
         )
-        await bot.send_message(
+        await _send(bot, 
             chat_to_report,
             f"Залил {added} новых, {skipped} уже были. Разбираю — это займёт время, "
             "заметки при этом продолжаю принимать.",
@@ -280,7 +352,7 @@ async def _run_import(application, path, chat_id, chat_to_report):
         await import_history.classify_pending(chat_id=chat_id, batch_size=20, concurrency=2)
         left = db.count_unclassified(chat_id)
 
-        await bot.send_message(
+        await _send(bot, 
             chat_to_report,
             f"Импорт закончен: разобрано {pending - left} заметок.\n"
             f"Всего в базе: {db.stats()['total']}.\n\n"
@@ -288,7 +360,7 @@ async def _run_import(application, path, chat_id, chat_to_report):
         )
     except Exception as e:
         log.exception("Импорт упал")
-        await bot.send_message(chat_to_report, f"Импорт упал: {type(e).__name__}: {e}")
+        await _send(bot, chat_to_report, f"Импорт упал: {type(e).__name__}: {e}")
     finally:
         application.bot_data["import_running"] = False
         try:
@@ -315,16 +387,27 @@ async def on_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = message.chat_id
     text = (message.text or message.caption or "").strip()
 
-    # 1. Исправление классификации реплаем.
-    if message.reply_to_message is not None:
+    reply = message.reply_to_message
+    replied_to_bot = bool(
+        reply is not None and reply.from_user is not None
+        and reply.from_user.id == context.bot.id
+    )
+
+    # 1. Исправление классификации реплаем — только на собственные заметки.
+    if reply is not None and not replied_to_bot:
         parsed = classify.parse_correction(text)
         if parsed is not None:
             await _apply_correction(update, context, parsed)
             return
 
-    # 2. Команда «бро, ...».
-    if commands.is_command(text):
-        await _handle_bro(update, context, text)
+    # 2. Команда «бро, ...» — или ответ реплаем на сообщение бота, что то же
+    # самое: это продолжение разговора, а не новая заметка. Предыдущий ответ
+    # передаём как контекст, иначе «а где сама ссылка» не значит ничего.
+    if commands.is_command(text) or (replied_to_bot and text):
+        await _handle_bro(
+            update, context, text,
+            context_text=(reply.text or reply.caption) if replied_to_bot else None,
+        )
         return
 
     # 3. Присланный экспорт истории — это не заметка, а импорт.
@@ -393,7 +476,7 @@ async def _apply_correction(update, context, parsed):
 
     note = db.get_note_by_message(message.chat_id, target.message_id)
     if note is None:
-        await message.reply_text("Этой заметки нет в базе — не могу её поправить.")
+        await _reply(message, "Этой заметки нет в базе — не могу её поправить.")
         return
 
     changed = False
@@ -428,23 +511,38 @@ def _keyboard(buttons):
     )
 
 
-async def _handle_bro(update, context, text):
+async def _handle_bro(update, context, text, context_text=None):
     message = update.effective_message
     await react(context.bot, message.chat_id, message.message_id, REACTION_PROCESSING)
     await context.bot.send_chat_action(message.chat_id, ChatAction.TYPING)
 
     try:
-        answer, rows = await commands.answer(text)
+        answer, rows, action = await commands.answer(text, context_text=context_text)
     except Exception as e:
         log.exception("Ошибка обработки команды")
-        await message.reply_text(f"Сломался на этом запросе: {type(e).__name__}: {e}")
+        await _reply(message, f"Сломался на этом запросе: {type(e).__name__}: {e}")
         await react(context.bot, message.chat_id, message.message_id, REACTION_UNKNOWN)
         return
+
+    # Статус меняли словами («бро, удали эту запись») — реакции на самих
+    # заметках должны это отразить, как при нажатии кнопки.
+    if action:
+        for note_id in action["ids"]:
+            note = db.get_note(note_id)
+            if note is None:
+                continue
+            if action["status"] == "done":
+                emoji = REACTION_DONE
+            elif action["status"] == "dropped":
+                emoji = REACTION_UNKNOWN
+            else:
+                emoji = type_reaction(note["type"])
+            await react(context.bot, note["chat_id"], note["message_id"], emoji)
 
     actionable = [r for r in rows if r["type"] == "task" and r["status"] in ("new", "kept")]
     keyboard = _keyboard(digest.task_buttons(actionable, limit=5))
 
-    await message.reply_text(answer, reply_markup=keyboard)
+    await _reply(message, answer, reply_markup=keyboard)
     await react(context.bot, message.chat_id, message.message_id, None)
 
 
@@ -602,13 +700,13 @@ async def cmd_help(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     if not _allowed(update):
         return
-    await update.effective_message.reply_text(commands.help_text())
+    await _reply(update.effective_message, commands.help_text())
 
 
 async def cmd_stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not _allowed(update):
         return
-    await update.effective_message.reply_text(commands.stats_text())
+    await _reply(update.effective_message, commands.stats_text())
 
 
 async def cmd_rules(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -617,7 +715,7 @@ async def cmd_rules(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     rows = db.all_rules()
     if not rows:
-        await update.effective_message.reply_text(
+        await _reply(update.effective_message, 
             "Правил пока нет. Они появятся сами, когда наберётся достаточно "
             "твоих исправлений — я предложу, ты подтвердишь."
         )
@@ -627,30 +725,30 @@ async def cmd_rules(update: Update, context: ContextTypes.DEFAULT_TYPE):
     for row in rows:
         mark = {"active": "✔", "proposed": "…", "rejected": "✖"}.get(row["status"], "?")
         lines.append(f"{mark} №{row['id']} {row['text']}")
-    await update.effective_message.reply_text("Мои правила:\n\n" + "\n".join(lines))
+    await _reply(update.effective_message, "Мои правила:\n\n" + "\n".join(lines))
 
 
 async def cmd_digest(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Ручной запуск дайджеста — удобно для проверки, не дожидаясь утра."""
     if not _allowed(update):
         return
-    await update.effective_message.reply_text("Собираю…")
+    await _reply(update.effective_message, "Собираю…")
     await _send_daily(context.application)
 
 
 async def cmd_weekly(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not _allowed(update):
         return
-    await update.effective_message.reply_text("Собираю недельный разбор, это займёт минуту…")
+    await _reply(update.effective_message, "Собираю недельный разбор, это займёт минуту…")
     await _send_weekly(context.application)
 
 
 # ---------------- Дайджесты и расписание ----------------
 
-async def _send(application, messages):
+async def _send_digest(application, messages):
     for item in messages:
         try:
-            await application.bot.send_message(
+            await _send(application.bot, 
                 chat_id=_target_chat(),
                 text=item["text"][:4000],
                 reply_markup=_keyboard(item.get("buttons")),
@@ -666,7 +764,7 @@ async def _send_daily(application):
     except Exception:
         log.exception("Ошибка сборки дневного дайджеста")
         return
-    await _send(application, messages)
+    await _send_digest(application, messages)
 
 
 async def _send_weekly(application):
@@ -677,7 +775,7 @@ async def _send_weekly(application):
     except Exception:
         log.exception("Ошибка сборки недельного дайджеста")
         return
-    await _send(application, messages)
+    await _send_digest(application, messages)
 
 
 async def _scheduler(application):
@@ -705,6 +803,7 @@ async def _scheduler(application):
                     db.meta_set("last_weekly", stamp)
                     log.info("Отправляю недельный разбор")
                     await _send_weekly(application)
+            await _sweep(application)
         except Exception:
             log.exception("Ошибка планировщика")
 
@@ -764,6 +863,7 @@ def main():
     application.add_handler(CommandHandler("digest", cmd_digest))
     application.add_handler(CommandHandler("weekly", cmd_weekly))
     application.add_handler(CallbackQueryHandler(on_callback))
+    application.add_handler(MessageReactionHandler(on_reaction))
     application.add_handler(
         MessageHandler(filters.UpdateType.EDITED_MESSAGE & ~filters.COMMAND, on_edited)
     )

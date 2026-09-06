@@ -95,6 +95,18 @@ CREATE TABLE IF NOT EXISTS dedup_groups (
     created_at REAL NOT NULL
 );
 
+-- Сообщения самого бота. Живут ограниченное время: если владелец не пометил
+-- сообщение сердечком, оно удаляется, и чат заметок остаётся чистым.
+CREATE TABLE IF NOT EXISTS bot_messages (
+    chat_id INTEGER NOT NULL,
+    message_id INTEGER NOT NULL,
+    sent_at REAL NOT NULL,
+    keep INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (chat_id, message_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_bot_messages_sweep ON bot_messages(keep, sent_at);
+
 CREATE TABLE IF NOT EXISTS meta (
     key TEXT PRIMARY KEY,
     value TEXT
@@ -496,6 +508,45 @@ def merge_notes(keep_id, drop_ids):
                 "UPDATE notes SET merged_into = ?, status = 'dropped' WHERE id = ?",
                 (keep_id, note_id),
             )
+
+
+# ---------------- Сообщения бота (самоочистка чата) ----------------
+
+def track_bot_message(chat_id, message_id):
+    with _connect() as conn:
+        conn.execute(
+            "INSERT OR REPLACE INTO bot_messages (chat_id, message_id, sent_at, keep) "
+            "VALUES (?, ?, ?, 0)",
+            (chat_id, message_id, time.time()),
+        )
+
+
+def set_bot_message_keep(chat_id, message_id, keep):
+    """True, если это действительно сообщение бота и отметка изменилась.
+    Реакции на обычные заметки сюда не попадают — там просто нет строки."""
+    with _connect() as conn:
+        cur = conn.execute(
+            "UPDATE bot_messages SET keep = ? WHERE chat_id = ? AND message_id = ?",
+            (1 if keep else 0, chat_id, message_id),
+        )
+        return cur.rowcount > 0
+
+
+def expired_bot_messages(before_ts, limit=50):
+    with _connect() as conn:
+        return conn.execute(
+            "SELECT chat_id, message_id FROM bot_messages "
+            "WHERE keep = 0 AND sent_at < ? ORDER BY sent_at LIMIT ?",
+            (before_ts, int(limit)),
+        ).fetchall()
+
+
+def forget_bot_message(chat_id, message_id):
+    with _connect() as conn:
+        conn.execute(
+            "DELETE FROM bot_messages WHERE chat_id = ? AND message_id = ?",
+            (chat_id, message_id),
+        )
 
 
 # ---------------- Служебное ----------------

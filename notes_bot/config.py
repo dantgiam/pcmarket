@@ -65,6 +65,25 @@ WEEKLY_WEEKDAY = int(os.environ.get("NOTES_WEEKLY_WEEKDAY", "6"))  # 0 = пн, 6
 DAILY_ENABLED = os.environ.get("NOTES_DAILY_ENABLED", "1") != "0"
 WEEKLY_ENABLED = os.environ.get("NOTES_WEEKLY_ENABLED", "1") != "0"
 
+# ---- Самоочистка чата ----
+# Сообщения самого бота (отчёты, ответы на «бро», предложения) живут
+# ограниченное время и удаляются, если на них не поставлено сердечко.
+# Так чат заметок не зарастает служебной перепиской, а всё нужное
+# сохраняется одним нажатием.
+
+AUTODELETE_ENABLED = os.environ.get("NOTES_AUTODELETE_ENABLED", "1") != "0"
+AUTODELETE_MINUTES = int(os.environ.get("NOTES_AUTODELETE_MINUTES", "30"))
+
+# Реакция, которая оставляет сообщение навсегда. Telegram присылает сердечко
+# как U+2764 без «эмодзи-довеска» U+FE0F, поэтому при сравнении его срезаем.
+KEEP_REACTION = "❤"
+
+
+def plain_emoji(value):
+    """Срезает вариационный селектор U+FE0F: одно и то же сердечко приходит
+    то как «❤», то как «❤️», и без нормализации сравнение врёт."""
+    return (value or "").replace("️", "")
+
 # ---- Таксономия ----
 
 TYPES = {
