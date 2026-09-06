@@ -18,7 +18,7 @@ from telegram import (
     InlineKeyboardButton, InlineKeyboardMarkup, ReactionTypeEmoji, Update,
 )
 from telegram.constants import ChatAction
-from telegram.error import TelegramError
+from telegram.error import Conflict, TelegramError
 from telegram.ext import (
     Application, CallbackQueryHandler, CommandHandler, ContextTypes,
     MessageHandler, filters,
@@ -722,6 +722,18 @@ async def _post_shutdown(application):
 
 
 async def on_error(update, context):
+    # Conflict означает ровно одно: с этим токеном опрашивает Telegram ещё
+    # кто-то. Трейсбек тут бесполезен, а причина всегда одна и та же —
+    # поэтому пишем понятную строку вместо простыни.
+    if isinstance(context.error, Conflict):
+        log.error(
+            "С этим токеном работает ещё один экземпляр бота — Telegram отдаёт "
+            "обновления то одному, то другому. Обычно это не остановленный "
+            "прошлый деплой, второй сервис Railway или бот, запущенный локально. "
+            "Оставь ровно один."
+        )
+        return
+
     log.exception("Необработанная ошибка", exc_info=context.error)
 
 
